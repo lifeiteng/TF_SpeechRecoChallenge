@@ -178,6 +178,11 @@ def main(_):
   if FLAGS.start_checkpoint:
     models.load_variables_from_checkpoint(sess, FLAGS.start_checkpoint)
     start_step = global_step.eval(session=sess)
+  else:
+    checkpoint_path = tf.train.latest_checkpoint(FLAGS.train_dir)
+    if checkpoint_path:
+      models.load_variables_from_checkpoint(sess, checkpoint_path)
+      start_step = global_step.eval(session=sess)
 
   tf.logging.info('Training from step: %d ', start_step)
 
