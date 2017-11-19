@@ -99,7 +99,7 @@ def label_wav(wav, labels, graph, input_name, output_name, how_many_labels):
   run_graph(wav_data, labels_list, input_name, output_name, how_many_labels)
 
 
-def label_wavs_list(wavs_list, labels, graph, input_name, output_name):
+def label_wavs_list(wavs_list, labels, graph, input_name, output_name, output_csv):
   """Loads the model and labels, and runs the inference to print predictions."""
 
   if not labels or not tf.gfile.Exists(labels):
@@ -108,29 +108,38 @@ def label_wavs_list(wavs_list, labels, graph, input_name, output_name):
   if not graph or not tf.gfile.Exists(graph):
     tf.logging.fatal('Graph file does not exist %s', graph)
 
+  if not wavs_list or not tf.gfile.Exists(wavs_list):
+    tf.logging.fatal('Wavs list file does not exist %s', wavs_list)
+
+  if not output_csv:
+    tf.logging.fatal("output csv doesn't been defined")
+
   labels_list = load_labels(labels)
 
   # load graph, which is stored in the default session
   load_graph(graph)
 
-  with tf.Session() as sess:
-    with open(wavs_list) as f:
-      for wav in f:
-        wav = wav.strip()
-        if not wav or not tf.gfile.Exists(wav):
-          tf.logging.fatal('Audio file does not exist %s', wav)
+  with open(output_csv, 'w') as wf:
+    wf.write("fname,label\n")
+    with tf.Session() as sess:
+      with open(wavs_list) as f:
+        for wav in f:
+          wav = wav.strip()
+          if not wav or not tf.gfile.Exists(wav):
+            tf.logging.fatal('Audio file does not exist %s', wav)
 
-        with open(wav, 'rb') as wav_file:
-          wav_data = wav_file.read()
+          with open(wav, 'rb') as wav_file:
+            wav_data = wav_file.read()
 
-        softmax_tensor = sess.graph.get_tensor_by_name(output_name)
-        predictions, = sess.run(softmax_tensor, {input_name: wav_data})
+          softmax_tensor = sess.graph.get_tensor_by_name(output_name)
+          predictions, = sess.run(softmax_tensor, {input_name: wav_data})
 
-        # Sort to show labels in order of confidence
-        node_id = predictions.argsort()[-1]
-        human_string = labels_list[node_id]
-        score = predictions[node_id]
-        print('%10s (score = %.5f) wav %s ' % (human_string, score, wav))
+          # Sort to show labels in order of confidence
+          node_id = predictions.argsort()[-1]
+          human_string = labels_list[node_id]
+          score = predictions[node_id]
+          # print('%10s (score = %.5f) wav %s ' % (human_string.strip('_'), score, wav))
+          wf.write("%s,%s\n" % (wav.split('/')[-1], human_string.strip('_')))
 
 
 def main(_):
@@ -140,7 +149,7 @@ def main(_):
               FLAGS.output_name, FLAGS.how_many_labels)
   else:
     label_wavs_list(FLAGS.wavs_list, FLAGS.labels, FLAGS.graph, FLAGS.input_name,
-              FLAGS.output_name)
+              FLAGS.output_name, FLAGS.output_csv)
 
 if __name__ == '__main__':
   parser = argparse.ArgumentParser()
@@ -148,6 +157,11 @@ if __name__ == '__main__':
       '--wav', type=str, default='', help='Audio file to be identified.')
   parser.add_argument(
       '--wavs_list', type=str, default='', help='Audio files to be identified.')
+  parser.add_argument(
+      '--output_csv',
+      type=str,
+      default='',
+      help='Output csv file, for (TensorFlow Speech Recognition Challenge)')
   parser.add_argument(
       '--graph', type=str, default='', help='Model to use for identification.')
   parser.add_argument(
