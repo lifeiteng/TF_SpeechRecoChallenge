@@ -99,16 +99,55 @@ def label_wav(wav, labels, graph, input_name, output_name, how_many_labels):
   run_graph(wav_data, labels_list, input_name, output_name, how_many_labels)
 
 
+def label_wavs_list(wavs_list, labels, graph, input_name, output_name):
+  """Loads the model and labels, and runs the inference to print predictions."""
+
+  if not labels or not tf.gfile.Exists(labels):
+    tf.logging.fatal('Labels file does not exist %s', labels)
+
+  if not graph or not tf.gfile.Exists(graph):
+    tf.logging.fatal('Graph file does not exist %s', graph)
+
+  labels_list = load_labels(labels)
+
+  # load graph, which is stored in the default session
+  load_graph(graph)
+
+  with tf.Session() as sess:
+    with open(wavs_list) as f:
+      for wav in f:
+        wav = wav.strip()
+        if not wav or not tf.gfile.Exists(wav):
+          tf.logging.fatal('Audio file does not exist %s', wav)
+
+        with open(wav, 'rb') as wav_file:
+          wav_data = wav_file.read()
+
+        softmax_tensor = sess.graph.get_tensor_by_name(output_name)
+        predictions, = sess.run(softmax_tensor, {input_name: wav_data})
+
+        # Sort to show labels in order of confidence
+        node_id = predictions.argsort()[-1]
+        human_string = labels_list[node_id]
+        score = predictions[node_id]
+        print('%10s (score = %.5f) wav %s ' % (human_string, score, wav))
+
+
 def main(_):
   """Entry point for script, converts flags to arguments."""
-  label_wav(FLAGS.wav, FLAGS.labels, FLAGS.graph, FLAGS.input_name,
-            FLAGS.output_name, FLAGS.how_many_labels)
-
+  if not FLAGS.wavs_list:
+    label_wav(FLAGS.wav, FLAGS.labels, FLAGS.graph, FLAGS.input_name,
+              FLAGS.output_name, FLAGS.how_many_labels)
+  else:
+    label_wavs_list(FLAGS.wavs_list, FLAGS.labels, FLAGS.graph, FLAGS.input_name,
+              FLAGS.output_name)
 
 if __name__ == '__main__':
   parser = argparse.ArgumentParser()
   parser.add_argument(
       '--wav', type=str, default='', help='Audio file to be identified.')
+  parser.add_argument(
+      '--wavs_list', type=str, default='', help='Audio files to be identified.')
   parser.add_argument(
       '--graph', type=str, default='', help='Model to use for identification.')
   parser.add_argument(
