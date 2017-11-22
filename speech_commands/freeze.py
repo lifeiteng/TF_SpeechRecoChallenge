@@ -54,7 +54,7 @@ FLAGS = None
 
 def create_inference_graph(wanted_words, sample_rate, clip_duration_ms,
                            clip_stride_ms, window_size_ms, window_stride_ms,
-                           dct_coefficient_count, model_architecture):
+                           dct_coefficient_count, resnet_size, model_architecture):
   """Creates an audio model with the nodes needed for inference.
 
   Uses the supplied arguments to create a model, and inserts the input and
@@ -74,7 +74,7 @@ def create_inference_graph(wanted_words, sample_rate, clip_duration_ms,
   words_list = input_data.prepare_words_list(wanted_words.split(','))
   model_settings = models.prepare_model_settings(
       len(words_list), sample_rate, clip_duration_ms, window_size_ms,
-      window_stride_ms, dct_coefficient_count)
+      window_stride_ms, dct_coefficient_count, resnet_size)
   runtime_settings = {'clip_stride_ms': clip_stride_ms}
 
   wav_data_placeholder = tf.placeholder(tf.string, [], name='wav_data')
@@ -113,7 +113,8 @@ def main(_):
   create_inference_graph(FLAGS.wanted_words, FLAGS.sample_rate,
                          FLAGS.clip_duration_ms, FLAGS.clip_stride_ms,
                          FLAGS.window_size_ms, FLAGS.window_stride_ms,
-                         FLAGS.dct_coefficient_count, FLAGS.model_architecture)
+                         FLAGS.dct_coefficient_count, FLAGS.resnet_size,
+                         FLAGS.model_architecture)
   models.load_variables_from_checkpoint(sess, FLAGS.start_checkpoint)
 
   # Turn all the variables into inline constants inside the graph and save it.
@@ -159,6 +160,11 @@ if __name__ == '__main__':
       type=int,
       default=40,
       help='How many bins to use for the MFCC fingerprint',)
+  parser.add_argument(
+      '--resnet_size',
+      type=int,
+      default=32,
+      help='Residual model layers.')
   parser.add_argument(
       '--start_checkpoint',
       type=str,

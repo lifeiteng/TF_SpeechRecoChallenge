@@ -270,7 +270,7 @@ def cifar10_resnet_v2_generator(resnet_size, num_classes, data_format=None):
         inputs=inputs, pool_size=8, strides=1, padding='VALID',
         data_format=data_format)
     inputs = tf.identity(inputs, 'final_avg_pool')
-    inputs = tf.reshape(inputs, [-1, 64])
+    inputs = tf.reshape(inputs, [-1, 3456])
     inputs = tf.layers.dense(inputs=inputs, units=num_classes)
     inputs = tf.identity(inputs, 'final_dense')
     return inputs
