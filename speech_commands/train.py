@@ -73,6 +73,7 @@ from __future__ import print_function
 import argparse
 import os.path
 import sys
+import json
 
 import numpy as np
 from six.moves import xrange  # pylint: disable=redefined-builtin
@@ -151,8 +152,17 @@ def main(_):
   with tf.name_scope('train'), tf.control_dependencies(control_dependencies):
     learning_rate_input = tf.placeholder(
         tf.float32, [], name='learning_rate_input')
-    train_step = tf.train.GradientDescentOptimizer(
-        learning_rate_input).minimize(cross_entropy_mean)
+    optimizer_name = FLAGS.optimizer
+    optimizer_params = {}
+    if FLAGS.optimizer.find("|") > 0:
+      optimizer_name, optimizer_params = FLAGS.optimizer.split("|")
+      tf.logging.info("optimizer_name = {} optimizer_params = {}".format(optimizer_name, optimizer_params))
+      optimizer_params = json.loads(optimizer_params)
+    tf.logging.info("optimizer_name = {} optimizer_params = {}".format(optimizer_name, optimizer_params))
+    train_step = tf.contrib.layers.OPTIMIZER_CLS_NAMES[FLAGS.optimizer](
+      learning_rate=learning_rate_input,
+      **optimizer_params).minimize(cross_entropy_mean)
+
   predicted_indices = tf.argmax(logits, 1)
   expected_indices = tf.argmax(ground_truth_input, 1)
   correct_prediction = tf.equal(predicted_indices, expected_indices)
@@ -392,7 +402,7 @@ if __name__ == '__main__':
   parser.add_argument(
       '--batch_size',
       type=int,
-      default=100,
+      default=128,
       help='How many items to train with at once',)
   parser.add_argument(
       '--summaries_dir',
@@ -429,6 +439,11 @@ if __name__ == '__main__':
       type=str,
       default='conv',
       help='What model architecture to use')
+  parser.add_argument(
+      '--optimizer',
+      type=str,
+      default='Adam',
+      help='Which Optimizer to use')
   parser.add_argument(
       '--check_nans',
       type=bool,
