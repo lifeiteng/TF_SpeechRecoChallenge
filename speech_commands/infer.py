@@ -14,99 +14,160 @@
 # ==============================================================================
 r"""Simple speech recognition to spot a limited number of keywords.
 
-This is a self-contained example script that will train a very basic audio
-recognition model in TensorFlow. It downloads the necessary training data and
-runs with reasonable defaults to train within a few hours even only using a CPU.
-For more information, please see
-https://www.tensorflow.org/tutorials/audio_recognition.
-
-It is intended as an introduction to using neural networks for audio
-recognition, and is not a full speech recognition system. For more advanced
-speech systems, I recommend looking into Kaldi. This network uses a keyword
-detection style to spot discrete words from a small vocabulary, consisting of
-"yes", "no", "up", "down", "left", "right", "on", "off", "stop", and "go".
-
-To run the training process, use:
-
-bazel run tensorflow/examples/speech_commands:train
-
-This will write out checkpoints to /tmp/speech_commands_train/, and will
-download over 1GB of open source training data, so you'll need enough free space
-and a good internet connection. The default data is a collection of thousands of
-one-second .wav files, each containing one spoken word. This data set is
-collected from https://aiyprojects.withgoogle.com/open_speech_recording, please
-consider contributing to help improve this and other models!
-
-As training progresses, it will print out its accuracy metrics, which should
-rise above 90% by the end. Once it's complete, you can run the freeze script to
-get a binary GraphDef that you can easily deploy on mobile applications.
-
-If you want to train on your own data, you'll need to create .wavs with your
-recordings, all at a consistent length, and then arrange them into subfolders
-organized by label. For example, here's a possible file structure:
-
-my_wavs >
-  up >
-    audio_0.wav
-    audio_1.wav
-  down >
-    audio_2.wav
-    audio_3.wav
-  other>
-    audio_4.wav
-    audio_5.wav
-
-You'll also need to tell the script what labels to look for, using the
-`--wanted_words` argument. In this case, 'up,down' might be what you want, and
-the audio in the 'other' folder would be used to train an 'unknown' category.
-
-To pull this all together, you'd run:
-
-bazel run tensorflow/examples/speech_commands:train -- \
---data_dir=my_wavs --wanted_words=up,down
-
 """
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
 import argparse
+import os
 import sys
 
 import input_data
 import models
+import numpy as np
 import tensorflow as tf
 from six.moves import xrange  # pylint: disable=redefined-builtin
+from tensorflow.contrib.framework.python.ops import audio_ops as contrib_audio
+from tensorflow.python.ops import io_ops
 from tensorflow.python.platform import gfile
 
 FLAGS = None
+
+
+class AudioProcessor(object):
+  """Handles loading, partitioning, and preparing audio training data."""
+
+  def __init__(self, data_dir, model_settings):
+    self.data_dir = data_dir
+    self.prepare_data_index()
+    self.prepare_processing_graph(model_settings)
+
+  def prepare_data_index(self):
+    # Look through all the subfolders to find audio samples
+    search_path = os.path.join(self.data_dir, '*', '*.wav')
+    self.data_indexs = []
+    for wav_path in gfile.Glob(search_path):
+      self.data_indexs.append(wav_path)
+
+  def prepare_processing_graph(self, model_settings):
+    """Builds a TensorFlow graph to apply the input distortions.
+
+    Creates a graph that loads a WAVE file, decodes it, scales the volume,
+    shifts it in time, adds in background noise, calculates a spectrogram, and
+    then builds an MFCC fingerprint from that.
+
+    This must be called with an active TensorFlow session running, and it
+    creates multiple placeholder inputs, and one output:
+
+      - wav_filename_placeholder_: Filename of the WAV to load.
+      - foreground_volume_placeholder_: How loud the main clip should be.
+      - time_shift_padding_placeholder_: Where to pad the clip.
+      - time_shift_offset_placeholder_: How much to move the clip in time.
+      - background_data_placeholder_: PCM sample data for background noise.
+      - background_volume_placeholder_: Loudness of mixed-in background.
+      - mfcc_: Output 2D fingerprint of processed audio.
+
+    Args:
+      model_settings: Information about the current model being trained.
+    """
+    desired_samples = model_settings['desired_samples']
+    self.wav_filename_placeholder_ = tf.placeholder(tf.string, [])
+    wav_loader = io_ops.read_file(self.wav_filename_placeholder_)
+    wav_decoder = contrib_audio.decode_wav(
+      wav_loader, desired_channels=1, desired_samples=desired_samples)
+    # Allow the audio sample's volume to be adjusted.
+    self.foreground_volume_placeholder_ = tf.placeholder(tf.float32, [])
+    scaled_foreground = tf.multiply(wav_decoder.audio,
+                                    self.foreground_volume_placeholder_)
+    # Shift the sample's start position, and pad any gaps with zeros.
+    self.time_shift_padding_placeholder_ = tf.placeholder(tf.int32, [2, 2])
+    self.time_shift_offset_placeholder_ = tf.placeholder(tf.int32, [2])
+    padded_foreground = tf.pad(
+      scaled_foreground,
+      self.time_shift_padding_placeholder_,
+      mode='CONSTANT')
+    sliced_foreground = tf.slice(padded_foreground,
+                                 self.time_shift_offset_placeholder_,
+                                 [desired_samples, -1])
+
+    # Run the spectrogram and MFCC ops to get a 2D 'fingerprint' of the audio.
+    spectrogram = contrib_audio.audio_spectrogram(
+      sliced_foreground,
+      window_size=model_settings['window_size_samples'],
+      stride=model_settings['window_stride_samples'],
+      magnitude_squared=True)
+    self.mfcc_ = contrib_audio.mfcc(
+      spectrogram,
+      wav_decoder.sample_rate,
+      dct_coefficient_count=model_settings['dct_coefficient_count'])
+
+  def set_size(self):
+    """Calculates the number of samples in the dataset partition.
+    Returns:
+      Number of samples in the partition.
+    """
+    return len(self.data_indexs)
+
+  def get_data(self, how_many, offset, model_settings, sess):
+    """Gather samples from the data set, applying transformations as needed.
+    Returns:
+      List of sample data for the transformed samples, and wav files name.
+    """
+    # Pick one of the partitions to choose samples from.
+    candidates = self.data_indexs
+    if how_many == -1:
+      sample_count = len(candidates)
+    else:
+      sample_count = max(0, min(how_many, len(candidates) - offset))
+    # Data and labels will be populated and returned.
+    data = np.zeros((sample_count, model_settings['fingerprint_size']))
+    wav_files = []
+
+    # Use the processing graph we created earlier to repeatedly to generate the
+    # final output sample data we'll use in training.
+    for i in xrange(offset, offset + sample_count):
+      # Pick which audio sample to use.
+      if how_many == -1:
+        sample_index = i
+      else:
+        sample_index = np.random.randint(len(candidates))
+      sample_file = candidates[sample_index]
+      time_shift_amount = 0
+      if time_shift_amount > 0:
+        time_shift_padding = [[time_shift_amount, 0], [0, 0]]
+        time_shift_offset = [0, 0]
+      else:
+        time_shift_padding = [[0, -time_shift_amount], [0, 0]]
+        time_shift_offset = [-time_shift_amount, 0]
+      input_dict = {self.wav_filename_placeholder_: sample_file,
+                    self.time_shift_padding_placeholder_: time_shift_padding,
+                    self.time_shift_offset_placeholder_: time_shift_offset}
+
+      input_dict[self.foreground_volume_placeholder_] = 1
+      # Run the graph to produce the output audio.
+      data[i - offset, :] = sess.run(self.mfcc_, feed_dict=input_dict).flatten()
+      wav_files.append(sample_file)
+
+    return data, wav_files
 
 
 def main(_):
   # We want to see all the logging messages for this tutorial.
   tf.logging.set_verbosity(tf.logging.INFO)
 
-  # Start a new TensorFlow session.
   sess = tf.InteractiveSession()
-
-  # Begin by making sure we have the training data we need. If you already have
-  # training data of your own, use `--data_url= ` on the command line to avoid
-  # downloading.
   model_settings = models.prepare_model_settings(
     len(input_data.prepare_words_list(FLAGS.wanted_words.split(','))),
     FLAGS.sample_rate, FLAGS.clip_duration_ms, FLAGS.window_size_ms,
     FLAGS.window_stride_ms, FLAGS.dct_coefficient_count, FLAGS.resnet_size)
 
-  audio_processor = input_data.AudioProcessor(
-    FLAGS.data_url, FLAGS.data_dir, FLAGS.silence_percentage,
-    FLAGS.unknown_percentage,
-    FLAGS.wanted_words.split(','), FLAGS.validation_percentage,
-    FLAGS.testing_percentage, model_settings)
+  audio_processor = AudioProcessor(FLAGS.data_dir, model_settings)
 
   fingerprint_size = model_settings['fingerprint_size']
   fingerprint_input = tf.placeholder(tf.float32, [None, fingerprint_size], name='fingerprint_input')
 
-  logits, dropout_prob = models.create_model(
+  logits = models.create_model(
     fingerprint_input,
     model_settings,
     FLAGS.model_architecture,
@@ -121,18 +182,17 @@ def main(_):
   else:
     tf.logging.fatal("Not find checkpoint.")
 
-  set_size = audio_processor.set_size('testing')
+  set_size = audio_processor.set_size()
   tf.logging.info('set_size=%d', set_size)
 
-  with gfile.GFile(FLAGS.output, 'w') as wf:
+  with gfile.GFile(FLAGS.output_csv, 'w') as wf:
     wf.write("fname,{}\n".format(','.join(input_data.prepare_words_list(FLAGS.wanted_words.split(',')))))
     for i in xrange(0, set_size, FLAGS.batch_size):
       test_fingerprints, test_wavfiles = audio_processor.get_data(
-        FLAGS.batch_size, i, model_settings, 0.0, 0.0, 0, 'testing', sess)
+        FLAGS.batch_size, i, model_settings, sess)
       probs = sess.run(softmax,
                        feed_dict={
                          fingerprint_input: test_fingerprints,
-                         dropout_prob: 1.0
                        })
       for i, wav_file in enumerate(test_wavfiles):
         wf.write("%s,%s\n" % (wav_file.split('/')[-1], ','.join([str(v) for v in probs[i]])))
@@ -146,34 +206,6 @@ if __name__ == '__main__':
     default='/tmp/speech_dataset/',
     help="""\
       Where to download the speech training data to.
-      """)
-  parser.add_argument(
-    '--background_volume',
-    type=float,
-    default=0.1,
-    help="""\
-      How loud the background noise should be, between 0 and 1.
-      """)
-  parser.add_argument(
-    '--background_frequency',
-    type=float,
-    default=0.8,
-    help="""\
-      How many of the training samples have background noise mixed in.
-      """)
-  parser.add_argument(
-    '--silence_percentage',
-    type=float,
-    default=10.0,
-    help="""\
-      How much of the training data should be silence.
-      """)
-  parser.add_argument(
-    '--unknown_percentage',
-    type=float,
-    default=10.0,
-    help="""\
-      How much of the training data should be unknown words.
       """)
   parser.add_argument(
     '--time_shift_ms',
@@ -233,10 +265,13 @@ if __name__ == '__main__':
     default='conv',
     help='What model architecture to use')
   parser.add_argument(
-    '--output',
+    '--output_csv',
     type=str,
     default='',
     help='Output file name')
 
   FLAGS, unparsed = parser.parse_known_args()
+  if not FLAGS.output_csv:
+    raise ValueError("must set --output_csv")
+
   tf.app.run(main=main, argv=[sys.argv[0]] + unparsed)
