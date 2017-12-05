@@ -65,7 +65,7 @@ def prepare_model_settings(label_count, sample_rate, clip_duration_ms,
 
 
 def create_model(fingerprint_input, model_settings, model_architecture,
-                 is_training, runtime_settings=None):
+                 is_training, hparam_string='', runtime_settings=None):
   """Builds a model of the requested architecture compatible with the settings.
 
   There are many possible ways of deriving predictions from a spectrogram
@@ -110,7 +110,10 @@ def create_model(fingerprint_input, model_settings, model_architecture,
     return create_low_latency_svdf_model(fingerprint_input, model_settings,
                                          is_training, runtime_settings)
   elif model_architecture == 'resnet':
-    return create_resnet_v2_model(fingerprint_input, model_settings,
+    return create_resnet_model(fingerprint_input, model_settings,
+                                  is_training, hparam_string)
+  elif model_architecture == 'resnet15':
+    return create_resnet15_model(fingerprint_input, model_settings,
                                   is_training)
   elif model_architecture == 'lenet':
     return create_lenet_model(fingerprint_input, model_settings,
@@ -235,6 +238,64 @@ def create_resnet_v2_model(fingerprint_input, model_settings, is_training):
 
   network = resnet_model.cifar10_resnet_v2_generator(
     resnet_size, label_count, 'channels_last')
+  logits = network(fingerprint_4d, is_training)
+
+  if is_training:
+    return logits, dropout_prob
+  else:
+    return logits
+
+
+def create_resnet_model(fingerprint_input, model_settings, is_training, hparam_string):
+  """Builds a resnet model.
+
+  Args:
+    fingerprint_input: TensorFlow node that will output audio feature vectors.
+    model_settings: Dictionary of information about the model.
+    is_training: Whether the model is going to be used for training.
+
+  Returns:
+    TensorFlow node outputting logits results, and optionally a dropout
+    placeholder.
+  """
+  if is_training:
+    dropout_prob = tf.placeholder(tf.float32, name='dropout_prob')
+  input_frequency_size = model_settings['dct_coefficient_count']
+  input_time_size = model_settings['spectrogram_length']
+  fingerprint_4d = tf.reshape(fingerprint_input,
+                              [-1, input_time_size, input_frequency_size, 1])
+
+  label_count = model_settings['label_count']
+  network = resnet_model.resnet_generator(label_count, hparam_string=hparam_string, data_format='channels_last')
+  logits = network(fingerprint_4d, is_training)
+
+  if is_training:
+    return logits, dropout_prob
+  else:
+    return logits
+
+
+def create_resnet15_model(fingerprint_input, model_settings, is_training):
+  """Builds a resnet model.
+
+  Args:
+    fingerprint_input: TensorFlow node that will output audio feature vectors.
+    model_settings: Dictionary of information about the model.
+    is_training: Whether the model is going to be used for training.
+
+  Returns:
+    TensorFlow node outputting logits results, and optionally a dropout
+    placeholder.
+  """
+  if is_training:
+    dropout_prob = tf.placeholder(tf.float32, name='dropout_prob')
+  input_frequency_size = model_settings['dct_coefficient_count']
+  input_time_size = model_settings['spectrogram_length']
+  fingerprint_4d = tf.reshape(fingerprint_input,
+                              [-1, input_time_size, input_frequency_size, 1])
+
+  label_count = model_settings['label_count']
+  network = resnet_model.resnet15_generator(label_count, data_format='channels_last')
   logits = network(fingerprint_4d, is_training)
 
   if is_training:

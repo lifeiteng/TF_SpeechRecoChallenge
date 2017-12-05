@@ -56,10 +56,10 @@ def batch_norm(inputs, is_training, data_format):
   """Performs a batch normalization followed by a ReLU."""
   # We set fused=True for a significant performance boost. See
   # https://www.tensorflow.org/performance/performance_guide#common_fused_ops
-  inputs = tf.layers.batch_normalization(
-    inputs=inputs, axis=1 if data_format == 'channels_first' else 3,
-    momentum=_BATCH_NORM_DECAY, epsilon=_BATCH_NORM_EPSILON, center=True,
-    scale=True, training=is_training, fused=True)
+  # inputs = tf.layers.batch_normalization(
+  #   inputs=inputs, axis=1 if data_format == 'channels_first' else 3,
+  #   momentum=_BATCH_NORM_DECAY, epsilon=_BATCH_NORM_EPSILON, center=True,
+  #   scale=True, training=is_training, fused=True)
   return inputs
 
 
@@ -68,10 +68,10 @@ def relu_batch_norm(inputs, is_training, data_format):
   # We set fused=True for a significant performance boost. See
   # https://www.tensorflow.org/performance/performance_guide#common_fused_ops
   inputs = tf.nn.relu(inputs)
-  inputs = tf.layers.batch_normalization(
-    inputs=inputs, axis=1 if data_format == 'channels_first' else 3,
-    momentum=_BATCH_NORM_DECAY, epsilon=_BATCH_NORM_EPSILON, center=True,
-    scale=True, training=is_training, fused=True)
+  # inputs = tf.layers.batch_normalization(
+  #   inputs=inputs, axis=1 if data_format == 'channels_first' else 3,
+  #   momentum=_BATCH_NORM_DECAY, epsilon=_BATCH_NORM_EPSILON, center=True,
+  #   scale=True, training=is_training, fused=True)
   return inputs
 
 
@@ -239,6 +239,109 @@ def block_layer(inputs, filters, block_fn, blocks, strides, is_training, name,
   return tf.identity(inputs, name)
 
 
+def create_hparams(hparam_string=None):
+  """Create model hyperparameters. Parse nondefault from given string."""
+  hparams = tf.contrib.training.HParams(
+      # The name of the architecture to use.
+      add_batch_norm=False,
+      kernel_size=3,
+
+      #########################
+      # Resnet Hyperparameters#
+      #########################
+      resnet_blocks=6,  # Number of resnet blocks
+      resnet_filters=45,  # Number of filters per conv in resnet blocks
+      # If true, add original input back to result of convolutions inside the
+      # resnet arch. If false, it turns into a simple stack of conv/relu/BN
+      # layers.
+      resnet_residuals=True)
+
+  if hparam_string:
+    tf.logging.info('Parsing command line hparams: %s', hparam_string)
+    hparams.parse(hparam_string)
+
+  tf.logging.info('Final parsed hparams: %s', hparams.values())
+  return hparams
+
+
+def resnet_generator(num_classes, data_format="channels_last", hparam_string=''):
+  """Generator for ResNet15 DEEP RESIDUAL LEARNING FOR SMALL-FOOTPRINT KEYWORD SPOTTING.
+
+  Args:
+    resnet_size: A single integer for the size of the ResNet model.
+    num_classes: The number of possible classes for image classification.
+    data_format: The input format ('channels_last', 'channels_first', or None).
+      If set to None, the format is dependent on whether a GPU is available.
+
+  Returns:
+    The model function that takes in `inputs` and `is_training` and
+    returns the output tensor of the ResNet model.
+
+  Raises:
+    ValueError: If `resnet_size` is invalid.
+  """
+  hparams = create_hparams(hparam_string)
+
+  def model(inputs, is_training):
+    """Constructs the ResNet model given the inputs."""
+    _, input_time_size, input_frequency_size, _ = inputs.get_shape().as_list()
+
+    inputs = conv2d_fixed_padding(
+      inputs=inputs, filters=hparams.resnet_filters, kernel_size=3, strides=1,
+      data_format=data_format)
+    inputs = tf.identity(inputs, 'initial_conv')
+
+    def _residual_block(inputs, filters=hparams.resnet_filters, dilations=(0, 0), name=None):
+      with tf.variable_scope(name):
+        shortcut = inputs
+        with tf.variable_scope("conv1"):
+          inputs = conv2d_fixed_padding(
+            inputs=inputs, filters=filters, kernel_size=3, strides=1,
+            data_format=data_format, dilation_rate=(dilations[0], dilations[0]))
+          if hparams.add_batch_norm:
+            inputs = relu_batch_norm(inputs, is_training, data_format)
+          else:
+            inputs = tf.nn.relu(inputs)
+
+        with tf.variable_scope("conv2"):
+          inputs = conv2d_fixed_padding(
+            inputs=inputs, filters=filters, kernel_size=3, strides=1,
+            data_format=data_format, dilation_rate=(dilations[1], dilations[1]))
+          if hparams.add_batch_norm:
+            inputs = relu_batch_norm(inputs, is_training, data_format)
+          else:
+            inputs = tf.nn.relu(inputs)
+
+        return tf.identity(inputs + shortcut)
+
+    for x in range(1, hparams.resnet_blocks + 1):
+      def _dilation(i):
+        return math.pow(2, math.floor(i / 3))
+
+      inputs = _residual_block(inputs=inputs, filters=hparams.resnet_filters,
+                               dilations=(_dilation(2 * x), _dilation(2 * x + 1)),
+                               name='block_layer{}'.format(x))
+
+    with tf.variable_scope("final_conv"):
+      inputs = conv2d_fixed_padding(inputs, filters=hparams.resnet_filters, kernel_size=3, strides=1,
+                                    data_format=data_format)
+      if hparams.add_batch_norm:
+        inputs = batch_norm(inputs, is_training, data_format)
+
+    inputs = tf.layers.max_pooling2d(
+      inputs=inputs,
+      pool_size=(input_time_size, input_frequency_size), strides=(1, 1), padding='VALID',
+      data_format=data_format)
+    inputs = tf.reshape(inputs, [-1, hparams.resnet_filters])
+    inputs = tf.identity(inputs, 'final_avg_pool')
+    inputs = tf.layers.dense(inputs=inputs, units=num_classes)
+    inputs = tf.identity(inputs, 'final_logits')
+    return inputs
+
+  return model
+
+
+
 def resnet15_generator(num_classes, data_format=None, filters=45):
   """Generator for ResNet15 DEEP RESIDUAL LEARNING FOR SMALL-FOOTPRINT KEYWORD SPOTTING.
 
@@ -256,16 +359,12 @@ def resnet15_generator(num_classes, data_format=None, filters=45):
     ValueError: If `resnet_size` is invalid.
   """
   if data_format is None:
+    assert False
     data_format = (
       'channels_first' if tf.test.is_built_with_cuda() else 'channels_last')
 
   def model(inputs, is_training):
     """Constructs the ResNet model given the inputs."""
-    if data_format == 'channels_first':
-      # Convert from channels_last (NHWC) to channels_first (NCHW). This
-      # provides a large performance boost on GPU. See
-      # https://www.tensorflow.org/performance/performance_guide#data_formats
-      inputs = tf.transpose(inputs, [0, 3, 1, 2])
     _, input_time_size, input_frequency_size, _ = inputs.get_shape().as_list()
 
     inputs = conv2d_fixed_padding(
@@ -302,7 +401,7 @@ def resnet15_generator(num_classes, data_format=None, filters=45):
                                     data_format=data_format)
       inputs = batch_norm(inputs, is_training, data_format)
 
-    inputs = tf.layers.average_pooling2d(
+    inputs = tf.layers.max_pooling2d(
       inputs=inputs,
       pool_size=(input_time_size, input_frequency_size), strides=(1, 1), padding='VALID',
       data_format=data_format)

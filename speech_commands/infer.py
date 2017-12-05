@@ -171,6 +171,7 @@ def main(_):
     fingerprint_input,
     model_settings,
     FLAGS.model_architecture,
+    hparam_string=FLAGS.hparams,
     is_training=False)
   softmax = tf.nn.softmax(logits, name='labels_softmax')
 
@@ -264,6 +265,11 @@ if __name__ == '__main__':
     type=str,
     default='conv',
     help='What model architecture to use')
+  parser.add_argument(
+      '--hparams',
+      type=str,
+      default='',
+      help='Hyper parameters string')
   parser.add_argument(
     '--output_csv',
     type=str,
