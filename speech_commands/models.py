@@ -23,6 +23,8 @@ import math
 
 import model_inception as inception_model
 import model_resnet as resnet_model
+import model_mobilenet as mobilenet_model
+
 import tensorflow as tf
 
 
@@ -121,6 +123,9 @@ def create_model(fingerprint_input, model_settings, model_architecture,
   elif model_architecture == 'inception':
     return create_inception_model(fingerprint_input, model_settings,
                                   is_training)
+  elif model_architecture == 'mobilenet':
+    return create_mobilenet_model(fingerprint_input, model_settings,
+                                  is_training, hparam_string)
   else:
     raise Exception('model_architecture argument "' + model_architecture +
                     '" not recognized, should be one of "single_fc", "conv",' +
@@ -297,6 +302,43 @@ def create_resnet15_model(fingerprint_input, model_settings, is_training):
   label_count = model_settings['label_count']
   network = resnet_model.resnet15_generator(label_count, data_format='channels_last')
   logits = network(fingerprint_4d, is_training)
+
+  if is_training:
+    return logits, dropout_prob
+  else:
+    return logits
+
+
+def create_mobilenet_model(fingerprint_input, model_settings, is_training, hparam_string):
+  """Builds a resnet model.
+
+  Args:
+    fingerprint_input: TensorFlow node that will output audio feature vectors.
+    model_settings: Dictionary of information about the model.
+    is_training: Whether the model is going to be used for training.
+
+  Returns:
+    TensorFlow node outputting logits results, and optionally a dropout
+    placeholder.
+  """
+  if is_training:
+    dropout_prob = tf.placeholder(tf.float32, name='dropout_prob')
+  else:
+    dropout_prob = 1
+  input_frequency_size = model_settings['dct_coefficient_count']
+  input_time_size = model_settings['spectrogram_length']
+  fingerprint_4d = tf.reshape(fingerprint_input,
+                              [-1, input_time_size, input_frequency_size, 1])
+
+  label_count = model_settings['label_count']
+  if hparam_string == 'mobilenet_v1_075':
+    logits, _ = mobilenet_model.mobilenet_v1_075(fingerprint_4d, dropout_keep_prob=dropout_prob, num_classes=label_count, is_training=is_training)
+  elif hparam_string == 'mobilenet_v1_050':
+    logits, _ = mobilenet_model.mobilenet_v1_050(fingerprint_4d, dropout_keep_prob=dropout_prob, num_classes=label_count, is_training=is_training)
+  elif hparam_string == 'mobilenet_v1_025':
+    logits, _ = mobilenet_model.mobilenet_v1_025(fingerprint_4d, dropout_keep_prob=dropout_prob, num_classes=label_count, is_training=is_training)
+  else:
+    logits, _ = mobilenet_model.mobilenet_v1(fingerprint_4d, dropout_keep_prob=dropout_prob, num_classes=label_count, is_training=is_training)
 
   if is_training:
     return logits, dropout_prob
