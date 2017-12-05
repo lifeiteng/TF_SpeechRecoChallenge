@@ -246,7 +246,7 @@ def main(_):
             fingerprint_input: train_fingerprints,
             ground_truth_input: train_ground_truth,
             learning_rate_input: learning_rate_value,
-            dropout_prob: 0.5
+            dropout_prob: FLAGS.dropout_prob
         })
     train_writer.add_summary(train_summary, training_step)
     if training_step % 10 == 1:
@@ -466,6 +466,11 @@ if __name__ == '__main__':
       type=str,
       default='',
       help='Hyper parameters string')
+  parser.add_argument(
+      '--dropout_prob',
+      type=float,
+      default=0.8,
+      help='dropout keep prob',)
   parser.add_argument(
       '--check_nans',
       type=bool,
