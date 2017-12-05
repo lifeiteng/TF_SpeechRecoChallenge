@@ -158,6 +158,7 @@ def main(_):
       optimizer_name, optimizer_params = FLAGS.optimizer.split("|")
       tf.logging.info("optimizer_name = {} optimizer_params = {}".format(optimizer_name, optimizer_params))
       optimizer_params = json.loads(optimizer_params)
+
     tf.logging.info("optimizer_name = {} optimizer_params = {}".format(optimizer_name, optimizer_params))
     train_step = tf.contrib.layers.OPTIMIZER_CLS_NAMES[FLAGS.optimizer](
       learning_rate=learning_rate_input,
@@ -233,9 +234,10 @@ def main(_):
             dropout_prob: 0.5
         })
     train_writer.add_summary(train_summary, training_step)
-    tf.logging.info('Step #%d: rate %f, accuracy %.1f%%, cross entropy %f' %
-                    (training_step, learning_rate_value, train_accuracy * 100,
-                     cross_entropy_value))
+    if training_step % 10 == 1:
+      tf.logging.info('Step #%d: rate %f, accuracy %.1f%%, cross entropy %f' %
+                      (training_step, learning_rate_value, train_accuracy * 100,
+                       cross_entropy_value))
     is_last_step = (training_step == training_steps_max)
     if (training_step % FLAGS.eval_step_interval) == 0 or is_last_step:
       set_size = audio_processor.set_size('validation')
@@ -387,7 +389,7 @@ if __name__ == '__main__':
   parser.add_argument(
       '--how_many_training_steps',
       type=str,
-      default='15000,3000',
+      default='15000,5000',
       help='How many training loops to run',)
   parser.add_argument(
       '--eval_step_interval',
