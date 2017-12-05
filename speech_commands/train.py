@@ -73,7 +73,8 @@ from __future__ import print_function
 import argparse
 import os.path
 import sys
-import json
+import six
+import yaml
 
 import numpy as np
 from six.moves import xrange  # pylint: disable=redefined-builtin
@@ -86,12 +87,33 @@ from tensorflow.python.platform import gfile
 FLAGS = None
 
 
+def _maybe_load_yaml(item):
+  """Parses `item` only if it is a string. If `item` is a dictionary
+  it is returned as-is.
+  """
+  if isinstance(item, six.string_types):
+    return yaml.load(item)
+  elif isinstance(item, dict):
+    return item
+  else:
+    raise ValueError("Got {}, expected YAML string or dict", type(item))
+
+
 def main(_):
   # We want to see all the logging messages for this tutorial.
   tf.logging.set_verbosity(tf.logging.INFO)
 
   # Start a new TensorFlow session.
   sess = tf.InteractiveSession()
+
+  optimizer_name = FLAGS.optimizer
+  optimizer_params = {}
+  if FLAGS.optimizer.find(":") > 0:
+    optimizer = _maybe_load_yaml(FLAGS.optimizer)
+    optimizer_name = optimizer["name"]
+    optimizer_params = optimizer["params"]
+
+  tf.logging.info("optimizer_name = {} optimizer_params = {}".format(optimizer_name, optimizer_params))
 
   # Begin by making sure we have the training data we need. If you already have
   # training data of your own, use `--data_url= ` on the command line to avoid
@@ -130,6 +152,7 @@ def main(_):
       fingerprint_input,
       model_settings,
       FLAGS.model_architecture,
+      hparam_string=FLAGS.hparams,
       is_training=True)
 
   # Define loss and optimizer
@@ -152,15 +175,7 @@ def main(_):
   with tf.name_scope('train'), tf.control_dependencies(control_dependencies):
     learning_rate_input = tf.placeholder(
         tf.float32, [], name='learning_rate_input')
-    optimizer_name = FLAGS.optimizer
-    optimizer_params = {}
-    if FLAGS.optimizer.find("|") > 0:
-      optimizer_name, optimizer_params = FLAGS.optimizer.split("|")
-      tf.logging.info("optimizer_name = {} optimizer_params = {}".format(optimizer_name, optimizer_params))
-      optimizer_params = json.loads(optimizer_params)
-
-    tf.logging.info("optimizer_name = {} optimizer_params = {}".format(optimizer_name, optimizer_params))
-    train_step = tf.contrib.layers.OPTIMIZER_CLS_NAMES[FLAGS.optimizer](
+    train_step = tf.contrib.layers.OPTIMIZER_CLS_NAMES[optimizer_name](
       learning_rate=learning_rate_input,
       **optimizer_params).minimize(cross_entropy_mean)
 
@@ -446,6 +461,11 @@ if __name__ == '__main__':
       type=str,
       default='Adam',
       help='Which Optimizer to use')
+  parser.add_argument(
+      '--hparams',
+      type=str,
+      default='',
+      help='Hyper parameters string')
   parser.add_argument(
       '--check_nans',
       type=bool,
