@@ -128,11 +128,7 @@ class AudioProcessor(object):
     # final output sample data we'll use in training.
     for i in xrange(offset, offset + sample_count):
       # Pick which audio sample to use.
-      if how_many == -1:
-        sample_index = i
-      else:
-        sample_index = np.random.randint(len(candidates))
-      sample_file = candidates[sample_index]
+      sample_file = candidates[i]
       time_shift_amount = 0
       if time_shift_amount > 0:
         time_shift_padding = [[time_shift_amount, 0], [0, 0]]
@@ -195,8 +191,8 @@ def main(_):
                        feed_dict={
                          fingerprint_input: test_fingerprints,
                        })
-      for i, wav_file in enumerate(test_wavfiles):
-        wf.write("%s,%s\n" % (wav_file.split('/')[-1], ','.join([str(v) for v in probs[i]])))
+      for k, wav_file in enumerate(test_wavfiles):
+        wf.write("%s,%s\n" % (wav_file.split('/')[-1], ','.join([str(v) for v in probs[k]])))
 
 
 if __name__ == '__main__':

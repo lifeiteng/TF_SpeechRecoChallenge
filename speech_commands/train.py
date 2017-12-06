@@ -111,7 +111,8 @@ def main(_):
   if FLAGS.optimizer.find(":") > 0:
     optimizer = _maybe_load_yaml(FLAGS.optimizer)
     optimizer_name = optimizer["name"]
-    optimizer_params = optimizer["params"]
+    if "params" in optimizer:
+      optimizer_params = optimizer["params"]
 
   tf.logging.info("optimizer_name = {} optimizer_params = {}".format(optimizer_name, optimizer_params))
 
@@ -122,11 +123,7 @@ def main(_):
       len(input_data.prepare_words_list(FLAGS.wanted_words.split(','))),
       FLAGS.sample_rate, FLAGS.clip_duration_ms, FLAGS.window_size_ms,
       FLAGS.window_stride_ms, FLAGS.dct_coefficient_count, FLAGS.resnet_size)
-  audio_processor = input_data.AudioProcessor(
-      FLAGS.data_url, FLAGS.data_dir, FLAGS.silence_percentage,
-      FLAGS.unknown_percentage,
-      FLAGS.wanted_words.split(','), FLAGS.validation_percentage,
-      FLAGS.testing_percentage, model_settings)
+
   fingerprint_size = model_settings['fingerprint_size']
   label_count = model_settings['label_count']
   time_shift_samples = int((FLAGS.time_shift_ms * FLAGS.sample_rate) / 1000)
@@ -215,6 +212,12 @@ def main(_):
   # Save graph.pbtxt.
   tf.train.write_graph(sess.graph_def, FLAGS.train_dir,
                        FLAGS.model_architecture + '.pbtxt')
+
+  audio_processor = input_data.AudioProcessor(
+      FLAGS.data_url, FLAGS.data_dir, FLAGS.silence_percentage,
+      FLAGS.unknown_percentage,
+      FLAGS.wanted_words.split(','), FLAGS.validation_percentage,
+      FLAGS.testing_percentage, model_settings)
 
   # Save list of words.
   with gfile.GFile(

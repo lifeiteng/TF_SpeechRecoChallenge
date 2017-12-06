@@ -244,6 +244,7 @@ def create_hparams(hparam_string=None):
   hparams = tf.contrib.training.HParams(
       # The name of the architecture to use.
       add_batch_norm=False,
+      pooling_type="average",
       kernel_size=3,
 
       #########################
@@ -328,7 +329,10 @@ def resnet_generator(num_classes, data_format="channels_last", hparam_string='')
       if hparams.add_batch_norm:
         inputs = batch_norm(inputs, is_training, data_format)
 
-    inputs = tf.layers.max_pooling2d(
+    pooling_fn = tf.layers.average_pooling2d
+    if hparams.pooling_type == 'max':
+      pooling_fn = tf.layers.max_pooling2d
+    inputs = pooling_fn(
       inputs=inputs,
       pool_size=(input_time_size, input_frequency_size), strides=(1, 1), padding='VALID',
       data_format=data_format)
@@ -401,7 +405,7 @@ def resnet15_generator(num_classes, data_format=None, filters=45):
                                     data_format=data_format)
       inputs = batch_norm(inputs, is_training, data_format)
 
-    inputs = tf.layers.max_pooling2d(
+    inputs = tf.layers.average_pooling2d(
       inputs=inputs,
       pool_size=(input_time_size, input_frequency_size), strides=(1, 1), padding='VALID',
       data_format=data_format)
