@@ -108,11 +108,14 @@ def main(_):
 
   optimizer_name = FLAGS.optimizer
   optimizer_params = {}
+  clip_gradients = 0.0
   if FLAGS.optimizer.find(":") > 0:
     optimizer = _maybe_load_yaml(FLAGS.optimizer)
     optimizer_name = optimizer["name"]
     if "params" in optimizer:
       optimizer_params = optimizer["params"]
+    if "clip_gradients" in optimizer:
+      clip_gradients = optimizer["clip_gradients"]
 
   tf.logging.info("optimizer_name = {} optimizer_params = {}".format(optimizer_name, optimizer_params))
 
@@ -172,9 +175,25 @@ def main(_):
   with tf.name_scope('train'), tf.control_dependencies(control_dependencies):
     learning_rate_input = tf.placeholder(
         tf.float32, [], name='learning_rate_input')
-    train_step = tf.contrib.layers.OPTIMIZER_CLS_NAMES[optimizer_name](
-      learning_rate=learning_rate_input,
-      **optimizer_params).minimize(cross_entropy_mean)
+    optimizer = tf.contrib.layers.OPTIMIZER_CLS_NAMES[optimizer_name](
+      learning_rate=learning_rate_input, **optimizer_params)
+
+    def _clip_gradients(grads_and_vars, value):
+      """Clips gradients by global norm."""
+      gradients, variables = zip(*grads_and_vars)
+      gradients, _ = tf.clip_by_global_norm(gradients, value)
+
+      return list(zip(gradients, variables))
+
+    global_step = tf.contrib.framework.get_or_create_global_step()
+    grad_vars = optimizer.compute_gradients(cross_entropy_mean)
+    if clip_gradients > 0.0:
+      grad_vars = _clip_gradients(grad_vars, clip_gradients)
+
+    # Add dependency on UPDATE_OPS; otherwise batchnorm won't work correctly. See:
+    # https://github.com/tensorflow/tensorflow/issues/1122
+    with tf.control_dependencies(tf.get_collection(tf.GraphKeys.UPDATE_OPS)):
+      train_step = optimizer.apply_gradients(grad_vars, global_step=global_step)
 
   predicted_indices = tf.argmax(logits, 1)
   expected_indices = tf.argmax(ground_truth_input, 1)
