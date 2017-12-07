@@ -52,14 +52,14 @@ def batch_norm_relu(inputs, is_training, data_format):
   return inputs
 
 
-def batch_norm(inputs, is_training, data_format):
+def batch_norm(inputs, is_training, data_format, name=None):
   """Performs a batch normalization followed by a ReLU."""
   # We set fused=True for a significant performance boost. See
   # https://www.tensorflow.org/performance/performance_guide#common_fused_ops
-  # inputs = tf.layers.batch_normalization(
-  #   inputs=inputs, axis=1 if data_format == 'channels_first' else 3,
-  #   momentum=_BATCH_NORM_DECAY, epsilon=_BATCH_NORM_EPSILON, center=True,
-  #   scale=True, training=is_training, fused=True)
+  inputs = tf.layers.batch_normalization(
+    inputs=inputs, axis=1 if data_format == 'channels_first' else 3,
+    momentum=_BATCH_NORM_DECAY, epsilon=_BATCH_NORM_EPSILON, center=True,
+    scale=True, training=is_training, fused=True, name=name)
   return inputs
 
 
@@ -68,10 +68,10 @@ def relu_batch_norm(inputs, is_training, data_format):
   # We set fused=True for a significant performance boost. See
   # https://www.tensorflow.org/performance/performance_guide#common_fused_ops
   inputs = tf.nn.relu(inputs)
-  # inputs = tf.layers.batch_normalization(
-  #   inputs=inputs, axis=1 if data_format == 'channels_first' else 3,
-  #   momentum=_BATCH_NORM_DECAY, epsilon=_BATCH_NORM_EPSILON, center=True,
-  #   scale=True, training=is_training, fused=True)
+  inputs = tf.layers.batch_normalization(
+    inputs=inputs, axis=1 if data_format == 'channels_first' else 3,
+    momentum=_BATCH_NORM_DECAY, epsilon=_BATCH_NORM_EPSILON, center=True,
+    scale=True, training=is_training, fused=True)
   return inputs
 
 
@@ -247,6 +247,8 @@ def create_hparams(hparam_string=None):
       pooling_type="average",
       kernel_size=3,
       add_dropout=False,
+      add_first_batch_norm=False,
+      freeze_first_batch_norm=False,
 
       #########################
       # Resnet Hyperparameters#
@@ -287,6 +289,10 @@ def resnet_generator(num_classes, dropout_prob=1.0, data_format="channels_last",
   def model(inputs, is_training):
     """Constructs the ResNet model given the inputs."""
     _, input_time_size, input_frequency_size, _ = inputs.get_shape().as_list()
+
+    if hparams.add_first_batch_norm:
+      inputs = batch_norm(inputs, is_training and (not hparams.freeze_first_batch_norm),
+                          data_format, name='initial_norm')
 
     inputs = conv2d_fixed_padding(
       inputs=inputs, filters=hparams.resnet_filters, kernel_size=3, strides=1,
@@ -344,7 +350,6 @@ def resnet_generator(num_classes, dropout_prob=1.0, data_format="channels_last",
     return inputs
 
   return model
-
 
 
 def resnet15_generator(num_classes, data_format=None, filters=45):
