@@ -54,13 +54,16 @@ echo "$0: $model_dir/$iter ======="
 mkdir -p submissions
 mkdir -p data
 
+output_csv=$model_dir/scores_${model}${suffix}_$datestr.csv
+
 python speech_commands/infer.py \
   --data_dir $test_dir \
   --train_dir $model_dir \
   --resnet_size $resnet_size --hparams "$hparams" \
   --model_architecture "$model" --window_size_ms 30.0 --window_stride_ms 10.0 \
-  --batch_size 64 --output_csv $model_dir/output_$datestr.csv </dev/null || exit 1
+  --batch_size 64 --output_csv $output_csv </dev/null || exit 1
 
-cp $model_dir/output_$datestr.csv submissions || exit 1
+cp $output_csv submissions || exit 1
+python speech_commands/ensemble_label.py $output_csv submissions/${model}${suffix}_$datestr.csv
 
 echo "$0: DONE"

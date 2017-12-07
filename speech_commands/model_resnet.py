@@ -246,6 +246,7 @@ def create_hparams(hparam_string=None):
       add_batch_norm=False,
       pooling_type="average",
       kernel_size=3,
+      add_dropout=False,
 
       #########################
       # Resnet Hyperparameters#
@@ -265,7 +266,7 @@ def create_hparams(hparam_string=None):
   return hparams
 
 
-def resnet_generator(num_classes, data_format="channels_last", hparam_string=''):
+def resnet_generator(num_classes, dropout_prob=1.0, data_format="channels_last", hparam_string=''):
   """Generator for ResNet15 DEEP RESIDUAL LEARNING FOR SMALL-FOOTPRINT KEYWORD SPOTTING.
 
   Args:

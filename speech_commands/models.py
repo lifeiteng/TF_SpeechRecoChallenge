@@ -265,13 +265,16 @@ def create_resnet_model(fingerprint_input, model_settings, is_training, hparam_s
   """
   if is_training:
     dropout_prob = tf.placeholder(tf.float32, name='dropout_prob')
+  else:
+    dropout_prob = 1.0
+
   input_frequency_size = model_settings['dct_coefficient_count']
   input_time_size = model_settings['spectrogram_length']
   fingerprint_4d = tf.reshape(fingerprint_input,
                               [-1, input_time_size, input_frequency_size, 1])
 
   label_count = model_settings['label_count']
-  network = resnet_model.resnet_generator(label_count, hparam_string=hparam_string, data_format='channels_last')
+  network = resnet_model.resnet_generator(label_count, dropout_prob, hparam_string=hparam_string, data_format='channels_last')
   logits = network(fingerprint_4d, is_training)
 
   if is_training:
@@ -294,6 +297,8 @@ def create_resnet15_model(fingerprint_input, model_settings, is_training):
   """
   if is_training:
     dropout_prob = tf.placeholder(tf.float32, name='dropout_prob')
+  else:
+    dropout_prob = 1.0
   input_frequency_size = model_settings['dct_coefficient_count']
   input_time_size = model_settings['spectrogram_length']
   fingerprint_4d = tf.reshape(fingerprint_input,
