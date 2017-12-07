@@ -21,9 +21,9 @@ from __future__ import print_function
 
 import math
 
-import model_inception as inception_model
-import model_resnet as resnet_model
-import model_mobilenet as mobilenet_model
+from speech import model_inception as inception_model
+from speech import model_resnet as resnet_model
+from speech import model_mobilenet as mobilenet_model
 
 import tensorflow as tf
 
