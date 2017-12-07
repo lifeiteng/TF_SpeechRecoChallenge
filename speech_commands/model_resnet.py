@@ -242,29 +242,36 @@ def block_layer(inputs, filters, block_fn, blocks, strides, is_training, name,
 def create_hparams(hparam_string=None):
   """Create model hyperparameters. Parse nondefault from given string."""
   hparams = tf.contrib.training.HParams(
-      # The name of the architecture to use.
-      add_batch_norm=False,
-      pooling_type="average",
-      kernel_size=3,
-      add_dropout=False,
-      add_first_batch_norm=False,
-      freeze_first_batch_norm=False,
+    # The name of the architecture to use.
+    add_batch_norm=False,
+    pooling_type="average",
+    kernel_size=3,
+    add_dropout=False,
+    add_first_batch_norm=False,
+    freeze_first_batch_norm=False,
 
-      #########################
-      # Resnet Hyperparameters#
-      #########################
-      resnet_blocks=6,  # Number of resnet blocks
-      resnet_filters=45,  # Number of filters per conv in resnet blocks
-      # If true, add original input back to result of convolutions inside the
-      # resnet arch. If false, it turns into a simple stack of conv/relu/BN
-      # layers.
-      resnet_residuals=True)
+    #########################
+    # Resnet Hyperparameters#
+    #########################
+    resnet_blocks=6,  # Number of resnet blocks
+    resnet_filters=45,  # Number of filters per conv in resnet blocks
+    # paper: Identity Mappings in Deep Residual Networks
+    # resnet type(Figure 4): ['pre-activation'(e), 'ReLU before addition'(c)]
+    resnet_type='c',
+    bottleneck_sizes=[0],  # if not [0], add bottleneck layer
+  )
 
   if hparam_string:
     tf.logging.info('Parsing command line hparams: %s', hparam_string)
     hparams.parse(hparam_string)
 
   tf.logging.info('Final parsed hparams: %s', hparams.values())
+  if hparams.resnet_type not in ['c', 'e']:
+    raise ValueError("not supported resnet_type: {} (not in ['c', 'e'])".format(hparams.resnet_type))
+  if not hparams.bottleneck_sizes:
+    assert any(s >= 0 for s in hparams.bottleneck_sizes)
+  assert isinstance(hparams.bottleneck_sizes, list)
+
   return hparams
 
 
@@ -303,22 +310,34 @@ def resnet_generator(num_classes, dropout_prob=1.0, data_format="channels_last",
       with tf.variable_scope(name):
         shortcut = inputs
         with tf.variable_scope("conv1"):
+          if hparams.resnet_type == 'e':
+            if hparams.add_batch_norm:
+              inputs = batch_norm_relu(inputs, is_training, data_format)
+            else:
+              inputs = tf.nn.relu(inputs)
           inputs = conv2d_fixed_padding(
             inputs=inputs, filters=filters, kernel_size=3, strides=1,
             data_format=data_format, dilation_rate=(dilations[0], dilations[0]))
-          if hparams.add_batch_norm:
-            inputs = relu_batch_norm(inputs, is_training, data_format)
-          else:
-            inputs = tf.nn.relu(inputs)
+          if hparams.resnet_type == 'c':
+            if hparams.add_batch_norm:
+              inputs = batch_norm_relu(inputs, is_training, data_format)
+            else:
+              inputs = tf.nn.relu(inputs)
 
         with tf.variable_scope("conv2"):
+          if hparams.resnet_type == 'e':
+            if hparams.add_batch_norm:
+              inputs = batch_norm_relu(inputs, is_training, data_format)
+            else:
+              inputs = tf.nn.relu(inputs)
           inputs = conv2d_fixed_padding(
             inputs=inputs, filters=filters, kernel_size=3, strides=1,
             data_format=data_format, dilation_rate=(dilations[1], dilations[1]))
-          if hparams.add_batch_norm:
-            inputs = relu_batch_norm(inputs, is_training, data_format)
-          else:
-            inputs = tf.nn.relu(inputs)
+          if hparams.resnet_type == 'c':
+            if hparams.add_batch_norm:
+              inputs = batch_norm_relu(inputs, is_training, data_format)
+            else:
+              inputs = tf.nn.relu(inputs)
 
         return tf.identity(inputs + shortcut)
 
@@ -345,6 +364,10 @@ def resnet_generator(num_classes, dropout_prob=1.0, data_format="channels_last",
       data_format=data_format)
     inputs = tf.reshape(inputs, [-1, hparams.resnet_filters])
     inputs = tf.identity(inputs, 'final_avg_pool')
+    if hparams.bottleneck_sizes[0] > 0:
+      for i, size in enumerate(hparams.bottleneck_sizes):
+        inputs = tf.layers.dense(inputs=inputs, units=size, name="final_bn{}".format(i))
+
     inputs = tf.layers.dense(inputs=inputs, units=num_classes)
     inputs = tf.identity(inputs, 'final_logits')
     return inputs
