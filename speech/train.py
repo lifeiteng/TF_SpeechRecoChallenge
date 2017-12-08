@@ -172,6 +172,7 @@ def main(_):
         tf.nn.softmax_cross_entropy_with_logits(
             labels=ground_truth_input, logits=logits))
   tf.summary.scalar('cross_entropy', cross_entropy_mean)
+
   with tf.name_scope('train'), tf.control_dependencies(control_dependencies):
     learning_rate_input = tf.placeholder(
         tf.float32, [], name='learning_rate_input')
@@ -185,7 +186,6 @@ def main(_):
 
       return list(zip(gradients, variables))
 
-    global_step = tf.contrib.framework.get_or_create_global_step()
     grad_vars = optimizer.compute_gradients(cross_entropy_mean)
     if clip_gradients > 0.0:
       grad_vars = _clip_gradients(grad_vars, clip_gradients)
@@ -193,7 +193,7 @@ def main(_):
     # Add dependency on UPDATE_OPS; otherwise batchnorm won't work correctly. See:
     # https://github.com/tensorflow/tensorflow/issues/1122
     with tf.control_dependencies(tf.get_collection(tf.GraphKeys.UPDATE_OPS)):
-      train_step = optimizer.apply_gradients(grad_vars, global_step=global_step)
+      train_step = optimizer.apply_gradients(grad_vars)
 
   predicted_indices = tf.argmax(logits, 1)
   expected_indices = tf.argmax(ground_truth_input, 1)
