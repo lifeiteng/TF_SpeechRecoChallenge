@@ -99,3 +99,31 @@ ENV/
 
 # mypy
 .mypy_cache/
+
+.DS_Store
+.idea/
+speech_commands/.DS_Store
+speech_commands/BUILD
+speech_commands/README.md
+speech_commands/__init__.py
+speech_commands/accuracy_utils.cc
+speech_commands/accuracy_utils.h
+speech_commands/accuracy_utils_test.cc
+speech_commands/label_wav.cc
+speech_commands/recognize_commands.cc
+speech_commands/recognize_commands.h
+speech_commands/recognize_commands_test.cc
+speech_commands/test_streaming_accuracy.cc
+
+speech/.DS_Store
+speech/BUILD
+speech/README.md
+speech/__init__.py
+speech/accuracy_utils.cc
+speech/accuracy_utils.h
+speech/accuracy_utils_test.cc
+speech/label_wav.cc
+speech/recognize_commands.cc
+speech/recognize_commands.h
+speech/recognize_commands_test.cc
+speech/test_streaming_accuracy.cc
