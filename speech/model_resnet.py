@@ -45,7 +45,7 @@ def batch_norm_relu(inputs, is_training, data_format):
   # We set fused=True for a significant performance boost. See
   # https://www.tensorflow.org/performance/performance_guide#common_fused_ops
   inputs = tf.layers.batch_normalization(
-    inputs=inputs, axis=1 if data_format == 'channels_first' else 3,
+    inputs=inputs, axis=1 if data_format == 'channels_first' else -1,
     momentum=_BATCH_NORM_DECAY, epsilon=_BATCH_NORM_EPSILON, center=True,
     scale=True, training=is_training, fused=True)
   inputs = tf.nn.relu(inputs)
@@ -57,7 +57,7 @@ def batch_norm(inputs, is_training, data_format, name=None):
   # We set fused=True for a significant performance boost. See
   # https://www.tensorflow.org/performance/performance_guide#common_fused_ops
   inputs = tf.layers.batch_normalization(
-    inputs=inputs, axis=1 if data_format == 'channels_first' else 3,
+    inputs=inputs, axis=1 if data_format == 'channels_first' else -1,
     momentum=_BATCH_NORM_DECAY, epsilon=_BATCH_NORM_EPSILON, center=True,
     scale=True, training=is_training, fused=True, name=name)
   return inputs
@@ -69,7 +69,7 @@ def relu_batch_norm(inputs, is_training, data_format):
   # https://www.tensorflow.org/performance/performance_guide#common_fused_ops
   inputs = tf.nn.relu(inputs)
   inputs = tf.layers.batch_normalization(
-    inputs=inputs, axis=1 if data_format == 'channels_first' else 3,
+    inputs=inputs, axis=1 if data_format == 'channels_first' else -1,
     momentum=_BATCH_NORM_DECAY, epsilon=_BATCH_NORM_EPSILON, center=True,
     scale=True, training=is_training, fused=True)
   return inputs
@@ -114,6 +114,47 @@ def conv2d_fixed_padding(inputs, filters, kernel_size, strides, data_format, dil
     padding=('SAME' if strides == 1 else 'VALID'), use_bias=False,
     kernel_initializer=tf.variance_scaling_initializer(),
     data_format=data_format, dilation_rate=dilation_rate)
+
+
+def fixed_padding_1d(inputs, kernel_size, data_format):
+  """Pads the input along the spatial dimensions independently of input size.
+
+  Args:
+    inputs: A tensor of size [batch, channels, height_in, width_in] or
+      [batch, height_in, width_in, channels] depending on data_format.
+    kernel_size: The kernel to be used in the conv2d or max_pool2d operation.
+                 Should be a positive integer.
+    data_format: The input format ('channels_last' or 'channels_first').
+
+  Returns:
+    A tensor with the same format as the input with the data either intact
+    (if kernel_size == 1) or padded (if kernel_size > 1).
+  """
+  pad_total = kernel_size - 1
+  pad_beg = pad_total // 2
+  pad_end = pad_total - pad_beg
+
+  if data_format == 'channels_first':
+    padded_inputs = tf.pad(inputs, [[0, 0], [0, 0],
+                                    [pad_beg, pad_end], [0, 0]])
+  else:
+    padded_inputs = tf.pad(inputs, [[0, 0], [pad_beg, pad_end],
+                                    [0, 0], [0, 0]])
+  return padded_inputs
+
+
+def conv1d_fixed_padding(inputs, filters, kernel_size, strides, data_format, dilation_rate=(1, 1)):
+  """Strided 1-D convolution with explicit padding."""
+  # The padding is consistent and is based only on `kernel_size`, not on the
+  # dimensions of `inputs` (as opposed to using `tf.layers.conv1d` alone).
+  if strides > 1:
+    inputs = fixed_padding(inputs, kernel_size, data_format)
+
+  return tf.layers.conv1d(
+    inputs=inputs, filters=filters, kernel_size=kernel_size, strides=strides,
+    padding=('SAME' if strides == 1 else 'VALID'), use_bias=False,
+    kernel_initializer=tf.variance_scaling_initializer(),
+    data_format=data_format, dilation_rate=(dilation_rate[0]))
 
 
 def building_block(inputs, filters, is_training, projection_shortcut, strides,
@@ -250,6 +291,8 @@ def create_hparams(hparam_string=None):
     add_first_batch_norm=False,
     freeze_first_batch_norm=False,
     freeze_batch_norm=False,
+    use_conv1d=False,
+    use_dilation_conv=True,
 
     #########################
     # Resnet Hyperparameters#
@@ -276,7 +319,8 @@ def create_hparams(hparam_string=None):
   return hparams
 
 
-def resnet_generator(num_classes, dropout_prob=1.0, data_format="channels_last", hparam_string=''):
+def resnet_generator(num_classes, dropout_prob=1.0,
+                     data_format="channels_last", hparam_string=''):
   """Generator for ResNet15 DEEP RESIDUAL LEARNING FOR SMALL-FOOTPRINT KEYWORD SPOTTING.
 
   Args:
@@ -297,6 +341,12 @@ def resnet_generator(num_classes, dropout_prob=1.0, data_format="channels_last",
   def model(inputs, is_training):
     """Constructs the ResNet model given the inputs."""
     _, input_time_size, input_frequency_size, _ = inputs.get_shape().as_list()
+    conv_fn = conv2d_fixed_padding
+    if hparams.use_conv1d:
+      conv_fn = conv1d_fixed_padding
+      # Rank 4 -> 3
+      inputs = tf.squeeze(inputs, axis=-1, name='inputs_squeezed')
+
     freeze_batch_norm = is_training and (not hparams.freeze_batch_norm)
 
     tf.summary.histogram('inputs', inputs)
@@ -307,7 +357,7 @@ def resnet_generator(num_classes, dropout_prob=1.0, data_format="channels_last",
       tf.summary.histogram('inputs_batchnorm', inputs)
 
     with tf.variable_scope('initial_conv'):
-      inputs = conv2d_fixed_padding(
+      inputs = conv_fn(
         inputs=inputs, filters=hparams.resnet_filters, kernel_size=3, strides=1,
         data_format=data_format)
       inputs = tf.identity(inputs, 'initial_conv')
@@ -321,7 +371,7 @@ def resnet_generator(num_classes, dropout_prob=1.0, data_format="channels_last",
               inputs = batch_norm_relu(inputs, is_training=freeze_batch_norm, data_format=data_format)
             else:
               inputs = tf.nn.relu(inputs)
-          inputs = conv2d_fixed_padding(
+          inputs = conv_fn(
             inputs=inputs, filters=filters, kernel_size=3, strides=1,
             data_format=data_format, dilation_rate=(dilations[0], dilations[0]))
           if hparams.resnet_type == 'c':
@@ -336,7 +386,7 @@ def resnet_generator(num_classes, dropout_prob=1.0, data_format="channels_last",
               inputs = batch_norm_relu(inputs, is_training=freeze_batch_norm, data_format=data_format)
             else:
               inputs = tf.nn.relu(inputs)
-          inputs = conv2d_fixed_padding(
+          inputs = conv_fn(
             inputs=inputs, filters=filters, kernel_size=3, strides=1,
             data_format=data_format, dilation_rate=(dilations[1], dilations[1]))
           if hparams.resnet_type == 'c':
@@ -349,27 +399,42 @@ def resnet_generator(num_classes, dropout_prob=1.0, data_format="channels_last",
 
     for x in range(1, hparams.resnet_blocks + 1):
       def _dilation(i):
-        return math.pow(2, math.floor(i / 3))
+        if hparams.use_dilation_conv:
+          return int(math.pow(2, math.floor(i / 3)))
+        return 1
 
       inputs = _residual_block(inputs=inputs, filters=hparams.resnet_filters,
                                dilations=(_dilation(2 * x), _dilation(2 * x + 1)),
                                name='block_layer{}'.format(x))
 
     with tf.variable_scope("final_conv"):
-      inputs = conv2d_fixed_padding(inputs, filters=hparams.resnet_filters, kernel_size=3, strides=1,
+      inputs = conv_fn(inputs, filters=hparams.resnet_filters, kernel_size=3, strides=1,
                                     data_format=data_format)
       if hparams.add_batch_norm:
         inputs = batch_norm(inputs, is_training=freeze_batch_norm, data_format=data_format)
 
-    pooling_fn = tf.layers.average_pooling2d
-    if hparams.pooling_type == 'max':
-      pooling_fn = tf.layers.max_pooling2d
-    inputs = pooling_fn(
-      inputs=inputs,
-      pool_size=(input_time_size, input_frequency_size), strides=(1, 1), padding='VALID',
-      data_format=data_format)
-    inputs = tf.reshape(inputs, [-1, hparams.resnet_filters])
-    inputs = tf.identity(inputs, 'final_avg_pool')
+    if hparams.use_conv1d:
+      pooling_fn = tf.layers.average_pooling1d
+      pool_size = 4
+      if hparams.pooling_type == 'max':
+        pooling_fn = tf.layers.max_pooling1d
+      inputs = pooling_fn(
+        inputs=inputs, pool_size=pool_size, strides=(2), padding='VALID', data_format=data_format)
+
+      assert (input_time_size - pool_size) % 2 == 0
+      output_size = int((input_time_size - pool_size) / 2) + 1
+      inputs = tf.reshape(inputs, [-1, hparams.resnet_filters * output_size])
+      inputs = tf.identity(inputs, 'final_avg_pool')
+    else:
+      pooling_fn = tf.layers.average_pooling2d
+      pool_size = (input_time_size, input_frequency_size)
+      if hparams.pooling_type == 'max':
+        pooling_fn = tf.layers.max_pooling2d
+      inputs = pooling_fn(
+        inputs=inputs, pool_size=pool_size, strides=(1, 1), padding='VALID', data_format=data_format)
+
+      inputs = tf.reshape(inputs, [-1, hparams.resnet_filters])
+      inputs = tf.identity(inputs, 'final_avg_pool')
     if hparams.bottleneck_sizes[0] > 0:
       for i, size in enumerate(hparams.bottleneck_sizes):
         inputs = tf.layers.dense(inputs=inputs, units=size, name="final_bn{}".format(i))
