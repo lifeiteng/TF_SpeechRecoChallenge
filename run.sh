@@ -5,6 +5,7 @@ resnet_size=20
 model="resnet15"  # resnet
 hparams=""
 batch_size=64
+feature_scaling=''
 
 suffix=
 opt=
@@ -14,6 +15,9 @@ infer_opt=""
 test_dir="/home/ftli/Data/TF_Speech/test"
 use_gpu=true
 
+skip_infer=false
+
+score_prefix=""
 
 training_steps="15000,10000"
 learning_rate="0.001,0.0001"
@@ -32,14 +36,14 @@ else
 fi
 
 if [ "$mode" = 'train' ];then
-  python speech_commands/train.py \
+  python speech/train.py \
     --data_dir ~/Data/TF_Speech/speech_commands \
     --train_dir $model_dir \
     --how_many_training_steps "$training_steps" --learning_rate "$learning_rate" \
     --resnet_size $resnet_size --optimizer "$opt" --hparams "$hparams" \
     --summaries_dir $model_dir/summaries \
     --model_architecture "$model" --window_size_ms 30.0 --window_stride_ms 10.0 \
-    --batch_size $batch_size
+    --batch_size $batch_size --feature_scaling "$feature_scaling"
 fi
 
 # [ ! -z "$mode" ] && datestr=$mode
@@ -54,16 +58,17 @@ echo "$0: $model_dir/$iter ======="
 mkdir -p submissions
 mkdir -p data
 
-output_csv=$model_dir/scores_${model}${suffix}_$datestr.csv
+output_csv=$model_dir/${score_prefix}scores_${model}${suffix}_$datestr.csv
 
-python speech_commands/infer.py \
+python speech/infer.py \
   --data_dir $test_dir \
   --train_dir $model_dir \
   --resnet_size $resnet_size --hparams "$hparams" \
   --model_architecture "$model" --window_size_ms 30.0 --window_stride_ms 10.0 \
-  --batch_size 64 --output_csv $output_csv </dev/null || exit 1
+  --batch_size 64 --output_csv $output_csv --feature_scaling "$feature_scaling" </dev/null || exit 1
 
 cp $output_csv submissions || exit 1
-python speech_commands/ensemble_label.py $output_csv submissions/${model}${suffix}_$datestr.csv
+python speech/ensemble_label.py $output_csv submissions/${model}${suffix}_${score_prefix}$datestr.csv
+python speech/ensemble_label.py --tune $output_csv submissions/${model}${suffix}_${score_prefix}${datestr}_tuned.csv
 
 echo "$0: DONE"
