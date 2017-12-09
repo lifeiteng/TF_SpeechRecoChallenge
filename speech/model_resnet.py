@@ -297,14 +297,18 @@ def resnet_generator(num_classes, dropout_prob=1.0, data_format="channels_last",
     """Constructs the ResNet model given the inputs."""
     _, input_time_size, input_frequency_size, _ = inputs.get_shape().as_list()
 
+    tf.summary.histogram('inputs', inputs)
     if hparams.add_first_batch_norm:
-      inputs = batch_norm(inputs, is_training and (not hparams.freeze_first_batch_norm),
-                          data_format, name='initial_norm')
+      with tf.variable_scope("initial_norm"):
+        inputs = batch_norm(inputs, is_training and (not hparams.freeze_first_batch_norm),
+                            data_format, name='initial_norm')
+      tf.summary.histogram('inputs_batchnorm', inputs)
 
-    inputs = conv2d_fixed_padding(
-      inputs=inputs, filters=hparams.resnet_filters, kernel_size=3, strides=1,
-      data_format=data_format)
-    inputs = tf.identity(inputs, 'initial_conv')
+    with tf.variable_scope('initial_conv'):
+      inputs = conv2d_fixed_padding(
+        inputs=inputs, filters=hparams.resnet_filters, kernel_size=3, strides=1,
+        data_format=data_format)
+      inputs = tf.identity(inputs, 'initial_conv')
 
     def _residual_block(inputs, filters=hparams.resnet_filters, dilations=(0, 0), name=None):
       with tf.variable_scope(name):
