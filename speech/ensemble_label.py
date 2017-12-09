@@ -34,41 +34,6 @@ from operator import itemgetter
 FLAGS = None
 
 
-def load_labels(filename):
-  """Read in labels, one label per line."""
-  return [line.rstrip() for line in open(filename).readlines()]
-
-
-def load_label_csv(csv_file):
-  """Loads the model and labels, and runs the inference to print predictions."""
-  labels_list = load_labels(FLAGS.labels)
-  num_labels = len(labels_list)
-  label2idx = {k.replace('_', ''): v for k, v in zip(labels_list, range(num_labels))}
-
-  with open(csv_file, 'rb') as csvfile:
-    reader = csv.reader(csvfile)
-    label = {}
-    skip_header = True
-    has_score = False
-    for row in reader:
-      if skip_header:
-        print(row)
-        if len(row) == num_labels + 1:
-          has_score = True
-          assert row[1:] == labels_list
-
-        skip_header = False
-        continue
-      if has_score:
-        label[row[0]] = [float(v) for v in row[1:]]
-      else:
-        # print(row)
-        assert len(row) == 2
-        label[row[0]] = [0.0] * num_labels
-        label[row[0]][label2idx[row[1]]] = 1.0
-    return label
-
-
 class color:
   d = {}
   RESET_SEQ = ""
@@ -99,6 +64,44 @@ class color:
     return self.d[color] + string + self.RESET_SEQ
 
 
+
+def load_labels(filename):
+  """Read in labels, one label per line."""
+  return [line.rstrip() for line in open(filename).readlines()]
+
+
+def load_label_csv(csv_file):
+  """Loads the model and labels, and runs the inference to print predictions."""
+  labels_list = load_labels(FLAGS.labels)
+  num_labels = len(labels_list)
+  label2idx = {k.replace('_', ''): v for k, v in zip(labels_list, range(num_labels))}
+
+  with open(csv_file, 'rb') as csvfile:
+    reader = csv.reader(csvfile)
+    label = {}
+    skip_header = True
+    has_score = False
+    for row in reader:
+      if skip_header:
+        print(row)
+        if len(row) == num_labels + 1:
+          has_score = True
+          assert row[1:] == labels_list
+
+        skip_header = False
+        continue
+      assert row[0] not in label
+      if has_score:
+        label[row[0]] = [float(v) for v in row[1:]]
+      else:
+        # print(row)
+        assert len(row) == 2
+        label[row[0]] = [0.0] * num_labels
+        label[row[0]][label2idx[row[1]]] = 1.0
+    return label
+
+
+
 colors = color(True)
 
 
@@ -121,7 +124,7 @@ def ensemble_labels(labels, mode):
       index, value = max(enumerate(score), key=itemgetter(1))
 
       def _relabel_to_unknown():
-        if value < 0.9 and index != unknown_index and index != silence_index:
+        if value < 0.84 and index != unknown_index and index != silence_index:
           if index != unknown_index and score[unknown_index] >= 0.08 and value < 0.9:
             return True
         return False
@@ -137,7 +140,7 @@ def ensemble_labels(labels, mode):
                                                             colors.c_string('G', 'unknown')))
         time.sleep(4)
       final_label[k] = labels_list[index]
-      if _relabel_to_unknown():
+      if FLAGS.tune and _relabel_to_unknown():
         final_label[k] = "unknown"
 
     else:
@@ -159,7 +162,7 @@ def main(argv):
 if __name__ == '__main__':
   parser = argparse.ArgumentParser()
   parser.add_argument(
-    '--labels', type=str, default='', help='Path to file containing labels.')
+    '--labels', type=str, default='labels.txt', help='Path to file containing labels.')
   parser.add_argument(
     '--mode',
     type=str,
@@ -170,6 +173,16 @@ if __name__ == '__main__':
     action='store_true',
     default=False,
     help='Output score instead of label')
+  parser.add_argument(
+    '--tune',
+    action='store_true',
+    default=False,
+    help='Tune label')
 
   FLAGS, unparsed = parser.parse_known_args()
+  if not FLAGS.labels:
+    raise ValueError("must set --labels.")
+  if len(unparsed) < 2:
+    raise ValueError("at least two inputs.")
+
   main(unparsed)
