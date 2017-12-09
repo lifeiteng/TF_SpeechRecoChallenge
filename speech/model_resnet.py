@@ -249,6 +249,7 @@ def create_hparams(hparam_string=None):
     add_dropout=False,
     add_first_batch_norm=False,
     freeze_first_batch_norm=False,
+    freeze_batch_norm=False,
 
     #########################
     # Resnet Hyperparameters#
@@ -296,12 +297,13 @@ def resnet_generator(num_classes, dropout_prob=1.0, data_format="channels_last",
   def model(inputs, is_training):
     """Constructs the ResNet model given the inputs."""
     _, input_time_size, input_frequency_size, _ = inputs.get_shape().as_list()
+    freeze_batch_norm = is_training and (not hparams.freeze_batch_norm)
 
     tf.summary.histogram('inputs', inputs)
     if hparams.add_first_batch_norm:
       with tf.variable_scope("initial_norm"):
-        inputs = batch_norm(inputs, is_training and (not hparams.freeze_first_batch_norm),
-                            data_format, name='initial_norm')
+        inputs = batch_norm(inputs, is_training=freeze_batch_norm and (not hparams.freeze_first_batch_norm),
+                            data_format=data_format, name='initial_norm')
       tf.summary.histogram('inputs_batchnorm', inputs)
 
     with tf.variable_scope('initial_conv'):
@@ -316,7 +318,7 @@ def resnet_generator(num_classes, dropout_prob=1.0, data_format="channels_last",
         with tf.variable_scope("conv1"):
           if hparams.resnet_type == 'e':
             if hparams.add_batch_norm:
-              inputs = batch_norm_relu(inputs, is_training, data_format)
+              inputs = batch_norm_relu(inputs, is_training=freeze_batch_norm, data_format=data_format)
             else:
               inputs = tf.nn.relu(inputs)
           inputs = conv2d_fixed_padding(
@@ -324,14 +326,14 @@ def resnet_generator(num_classes, dropout_prob=1.0, data_format="channels_last",
             data_format=data_format, dilation_rate=(dilations[0], dilations[0]))
           if hparams.resnet_type == 'c':
             if hparams.add_batch_norm:
-              inputs = batch_norm_relu(inputs, is_training, data_format)
+              inputs = batch_norm_relu(inputs, is_training=freeze_batch_norm, data_format=data_format)
             else:
               inputs = tf.nn.relu(inputs)
 
         with tf.variable_scope("conv2"):
           if hparams.resnet_type == 'e':
             if hparams.add_batch_norm:
-              inputs = batch_norm_relu(inputs, is_training, data_format)
+              inputs = batch_norm_relu(inputs, is_training=freeze_batch_norm, data_format=data_format)
             else:
               inputs = tf.nn.relu(inputs)
           inputs = conv2d_fixed_padding(
@@ -339,7 +341,7 @@ def resnet_generator(num_classes, dropout_prob=1.0, data_format="channels_last",
             data_format=data_format, dilation_rate=(dilations[1], dilations[1]))
           if hparams.resnet_type == 'c':
             if hparams.add_batch_norm:
-              inputs = batch_norm_relu(inputs, is_training, data_format)
+              inputs = batch_norm_relu(inputs, is_training=freeze_batch_norm, data_format=data_format)
             else:
               inputs = tf.nn.relu(inputs)
 
@@ -357,7 +359,7 @@ def resnet_generator(num_classes, dropout_prob=1.0, data_format="channels_last",
       inputs = conv2d_fixed_padding(inputs, filters=hparams.resnet_filters, kernel_size=3, strides=1,
                                     data_format=data_format)
       if hparams.add_batch_norm:
-        inputs = batch_norm(inputs, is_training, data_format)
+        inputs = batch_norm(inputs, is_training=freeze_batch_norm, data_format=data_format)
 
     pooling_fn = tf.layers.average_pooling2d
     if hparams.pooling_type == 'max':
