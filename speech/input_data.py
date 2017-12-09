@@ -28,16 +28,15 @@ import sys
 import tarfile
 
 import numpy as np
+import tensorflow as tf
 from six.moves import urllib
 from six.moves import xrange  # pylint: disable=redefined-builtin
-import tensorflow as tf
-
 from tensorflow.contrib.framework.python.ops import audio_ops as contrib_audio
 from tensorflow.python.ops import io_ops
 from tensorflow.python.platform import gfile
 from tensorflow.python.util import compat
 
-MAX_NUM_WAVS_PER_CLASS = 2**27 - 1  # ~134M
+MAX_NUM_WAVS_PER_CLASS = 2 ** 27 - 1  # ~134M
 SILENCE_LABEL = '_silence_'
 SILENCE_INDEX = 0
 UNKNOWN_WORD_LABEL = '_unknown_'
@@ -120,8 +119,8 @@ def load_wav_file(filename):
     wav_loader = io_ops.read_file(wav_filename_placeholder)
     wav_decoder = contrib_audio.decode_wav(wav_loader, desired_channels=1)
     return sess.run(
-        wav_decoder,
-        feed_dict={wav_filename_placeholder: filename}).audio.flatten()
+      wav_decoder,
+      feed_dict={wav_filename_placeholder: filename}).audio.flatten()
 
 
 def save_wav_file(filename, wav_data, sample_rate):
@@ -140,12 +139,12 @@ def save_wav_file(filename, wav_data, sample_rate):
                                            sample_rate_placeholder)
     wav_saver = io_ops.write_file(wav_filename_placeholder, wav_encoder)
     sess.run(
-        wav_saver,
-        feed_dict={
-            wav_filename_placeholder: filename,
-            sample_rate_placeholder: sample_rate,
-            wav_data_placeholder: np.reshape(wav_data, (-1, 1))
-        })
+      wav_saver,
+      feed_dict={
+        wav_filename_placeholder: filename,
+        sample_rate_placeholder: sample_rate,
+        wav_data_placeholder: np.reshape(wav_data, (-1, 1))
+      })
 
 
 class AudioProcessor(object):
@@ -153,7 +152,7 @@ class AudioProcessor(object):
 
   def __init__(self, data_url, data_dir, silence_percentage, unknown_percentage,
                wanted_words, validation_percentage, testing_percentage,
-               model_settings):
+               model_settings, feature_scaling=''):
     self.data_dir = data_dir
     self.maybe_download_and_extract_dataset(data_url, data_dir)
     self.prepare_data_index(silence_percentage, unknown_percentage,
@@ -161,6 +160,8 @@ class AudioProcessor(object):
                             testing_percentage)
     self.prepare_background_data()
     self.prepare_processing_graph(model_settings)
+
+    self.feature_scaling = feature_scaling
 
   def maybe_download_and_extract_dataset(self, data_url, dest_directory):
     """Download and extract data set tar file.
@@ -185,8 +186,8 @@ class AudioProcessor(object):
 
       def _progress(count, block_size, total_size):
         sys.stdout.write(
-            '\r>> Downloading %s %.1f%%' %
-            (filename, float(count * block_size) / float(total_size) * 100.0))
+          '\r>> Downloading %s %.1f%%' %
+          (filename, float(count * block_size) / float(total_size) * 100.0))
         sys.stdout.flush()
 
       try:
@@ -269,8 +270,8 @@ class AudioProcessor(object):
       silence_size = int(math.ceil(set_size * silence_percentage / 100))
       for _ in range(silence_size):
         self.data_index[set_index].append({
-            'label': SILENCE_LABEL,
-            'file': silence_wav_path
+          'label': SILENCE_LABEL,
+          'file': silence_wav_path
         })
       # Pick some unknowns to add to each partition of the data set.
       random.shuffle(unknown_index[set_index])
@@ -319,8 +320,8 @@ class AudioProcessor(object):
                                  '*.wav')
       for wav_path in gfile.Glob(search_path):
         wav_data = sess.run(
-            wav_decoder,
-            feed_dict={wav_filename_placeholder: wav_path}).audio.flatten()
+          wav_decoder,
+          feed_dict={wav_filename_placeholder: wav_path}).audio.flatten()
         self.background_data.append(wav_data)
       if not self.background_data:
         raise Exception('No background wav files were found in ' + search_path)
@@ -350,7 +351,7 @@ class AudioProcessor(object):
     self.wav_filename_placeholder_ = tf.placeholder(tf.string, [])
     wav_loader = io_ops.read_file(self.wav_filename_placeholder_)
     wav_decoder = contrib_audio.decode_wav(
-        wav_loader, desired_channels=1, desired_samples=desired_samples)
+      wav_loader, desired_channels=1, desired_samples=desired_samples)
     # Allow the audio sample's volume to be adjusted.
     self.foreground_volume_placeholder_ = tf.placeholder(tf.float32, [])
     scaled_foreground = tf.multiply(wav_decoder.audio,
@@ -359,9 +360,9 @@ class AudioProcessor(object):
     self.time_shift_padding_placeholder_ = tf.placeholder(tf.int32, [2, 2])
     self.time_shift_offset_placeholder_ = tf.placeholder(tf.int32, [2])
     padded_foreground = tf.pad(
-        scaled_foreground,
-        self.time_shift_padding_placeholder_,
-        mode='CONSTANT')
+      scaled_foreground,
+      self.time_shift_padding_placeholder_,
+      mode='CONSTANT')
     sliced_foreground = tf.slice(padded_foreground,
                                  self.time_shift_offset_placeholder_,
                                  [desired_samples, -1])
@@ -375,14 +376,14 @@ class AudioProcessor(object):
     background_clamp = tf.clip_by_value(background_add, -1.0, 1.0)
     # Run the spectrogram and MFCC ops to get a 2D 'fingerprint' of the audio.
     spectrogram = contrib_audio.audio_spectrogram(
-        background_clamp,
-        window_size=model_settings['window_size_samples'],
-        stride=model_settings['window_stride_samples'],
-        magnitude_squared=True)
+      background_clamp,
+      window_size=model_settings['window_size_samples'],
+      stride=model_settings['window_stride_samples'],
+      magnitude_squared=True)
     self.mfcc_ = contrib_audio.mfcc(
-        spectrogram,
-        wav_decoder.sample_rate,
-        dct_coefficient_count=model_settings['dct_coefficient_count'])
+      spectrogram,
+      wav_decoder.sample_rate,
+      dct_coefficient_count=model_settings['dct_coefficient_count'])
 
   def set_size(self, mode):
     """Calculates the number of samples in the dataset partition.
@@ -453,18 +454,18 @@ class AudioProcessor(object):
         time_shift_padding = [[0, -time_shift_amount], [0, 0]]
         time_shift_offset = [-time_shift_amount, 0]
       input_dict = {
-          self.wav_filename_placeholder_: sample['file'],
-          self.time_shift_padding_placeholder_: time_shift_padding,
-          self.time_shift_offset_placeholder_: time_shift_offset,
+        self.wav_filename_placeholder_: sample['file'],
+        self.time_shift_padding_placeholder_: time_shift_padding,
+        self.time_shift_offset_placeholder_: time_shift_offset,
       }
       # Choose a section of background noise to mix in.
       if use_background:
         background_index = np.random.randint(len(self.background_data))
         background_samples = self.background_data[background_index]
         background_offset = np.random.randint(
-            0, len(background_samples) - model_settings['desired_samples'])
+          0, len(background_samples) - model_settings['desired_samples'])
         background_clipped = background_samples[background_offset:(
-            background_offset + desired_samples)]
+          background_offset + desired_samples)]
         background_reshaped = background_clipped.reshape([desired_samples, 1])
         if np.random.uniform(0, 1) < background_frequency:
           background_volume = np.random.uniform(0, background_volume_range)
@@ -512,7 +513,7 @@ class AudioProcessor(object):
       wav_filename_placeholder = tf.placeholder(tf.string, [])
       wav_loader = io_ops.read_file(wav_filename_placeholder)
       wav_decoder = contrib_audio.decode_wav(
-          wav_loader, desired_channels=1, desired_samples=desired_samples)
+        wav_loader, desired_channels=1, desired_samples=desired_samples)
       foreground_volume_placeholder = tf.placeholder(tf.float32, [])
       scaled_foreground = tf.multiply(wav_decoder.audio,
                                       foreground_volume_placeholder)
@@ -530,4 +531,23 @@ class AudioProcessor(object):
         data[i, :] = sess.run(scaled_foreground, feed_dict=input_dict).flatten()
         label_index = self.word_to_index[sample['label']]
         labels.append(words_list[label_index])
-    return data, labels
+    return self.apply_feature_scaling(data, self.feature_scaling,
+                                      model_settings['dct_coefficient_count']), labels
+
+  @staticmethod
+  def apply_feature_scaling(data, feature_scaling, dct_coefficient_count):
+    if feature_scaling.lower() == 'cmvn':
+      bs, fs = data.shape
+      data = np.reshape(data, [bs, fs / dct_coefficient_count, dct_coefficient_count])
+      mean = np.expand_dims(np.mean(data, axis=1), axis=1)
+      std = np.expand_dims(np.maximum(np.std(data, axis=1), 1e-6), axis=1)
+      return np.reshape((data - mean) / std, [bs, -1])
+    elif feature_scaling.lower() == 'cmn':
+      bs, fs = data.shape
+      data = np.reshape(data, [bs, dct_coefficient_count, fs / dct_coefficient_count])
+      mean = np.expand_dims(np.mean(data, axis=-1), axis=1)
+      return np.reshape((data - mean), [bs, -1])
+    elif feature_scaling != '':
+      raise ValueError("Not supported feature_scaling value: {}".format(feature_scaling))
+
+    return data

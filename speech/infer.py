@@ -23,8 +23,6 @@ import argparse
 import os
 import sys
 
-import input_data
-import models
 import numpy as np
 import tensorflow as tf
 from six.moves import xrange  # pylint: disable=redefined-builtin
@@ -32,16 +30,20 @@ from tensorflow.contrib.framework.python.ops import audio_ops as contrib_audio
 from tensorflow.python.ops import io_ops
 from tensorflow.python.platform import gfile
 
+from speech import input_data
+from speech import models
+
 FLAGS = None
 
 
 class AudioProcessor(object):
   """Handles loading, partitioning, and preparing audio training data."""
 
-  def __init__(self, data_dir, model_settings):
+  def __init__(self, data_dir, model_settings, feature_scaling=''):
     self.data_dir = data_dir
     self.prepare_data_index()
     self.prepare_processing_graph(model_settings)
+    self.feature_scaling = feature_scaling
 
   def prepare_data_index(self):
     # Look through all the subfolders to find audio samples
@@ -145,7 +147,8 @@ class AudioProcessor(object):
       data[i - offset, :] = sess.run(self.mfcc_, feed_dict=input_dict).flatten()
       wav_files.append(sample_file)
 
-    return data, wav_files
+    return input_data.AudioProcessor.apply_feature_scaling(data, self.feature_scaling,
+                                                           model_settings['dct_coefficient_count']), wav_files
 
 
 def main(_):
@@ -262,15 +265,20 @@ if __name__ == '__main__':
     default='conv',
     help='What model architecture to use')
   parser.add_argument(
-      '--hparams',
-      type=str,
-      default='',
-      help='Hyper parameters string')
+    '--hparams',
+    type=str,
+    default='',
+    help='Hyper parameters string')
   parser.add_argument(
     '--output_csv',
     type=str,
     default='',
     help='Output file name')
+  parser.add_argument(
+    '--feature_scaling',
+    type=str,
+    default='',  # '' 'cmvn'
+    help='Feature normalization')
 
   FLAGS, unparsed = parser.parse_known_args()
   if not FLAGS.output_csv:

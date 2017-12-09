@@ -236,7 +236,7 @@ def main(_):
       FLAGS.data_url, FLAGS.data_dir, FLAGS.silence_percentage,
       FLAGS.unknown_percentage,
       FLAGS.wanted_words.split(','), FLAGS.validation_percentage,
-      FLAGS.testing_percentage, model_settings)
+      FLAGS.testing_percentage, model_settings, feature_scaling=FLAGS.feature_scaling)
 
   # Save list of words.
   with gfile.GFile(
@@ -498,6 +498,11 @@ if __name__ == '__main__':
       type=bool,
       default=False,
       help='Whether to check for invalid numbers during processing')
+  parser.add_argument(
+      '--feature_scaling',
+      type=str,
+      default='',  # '' 'cmvn'
+      help='Feature normalization')
 
   FLAGS, unparsed = parser.parse_known_args()
   tf.app.run(main=main, argv=[sys.argv[0]] + unparsed)
