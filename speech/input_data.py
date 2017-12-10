@@ -396,6 +396,9 @@ class AudioProcessor(object):
     """
     return len(self.data_index[mode])
 
+  def shuffle_data(self, mode):
+    random.shuffle(self.data_index[mode])
+
   def get_data(self, how_many, offset, model_settings, background_frequency,
                background_volume_range, time_shift, mode, sess):
     """Gather samples from the data set, applying transformations as needed.
@@ -435,12 +438,14 @@ class AudioProcessor(object):
     pick_deterministically = (mode != 'training')
     # Use the processing graph we created earlier to repeatedly to generate the
     # final output sample data we'll use in training.
+    set_size = self.set_size(mode)
     for i in xrange(offset, offset + sample_count):
       # Pick which audio sample to use.
       if how_many == -1 or pick_deterministically:
         sample_index = i
       else:
-        sample_index = np.random.randint(len(candidates))
+        # training
+        sample_index = i % set_size
       sample = candidates[sample_index]
       # If we're time shifting, set up the offset for this sample.
       if time_shift > 0:

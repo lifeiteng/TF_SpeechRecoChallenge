@@ -246,6 +246,10 @@ def main(_):
 
   # Training loop.
   training_steps_max = np.sum(training_steps_list)
+
+  data_offset = 0
+  audio_processor.shuffle_data('training')
+
   for training_step in xrange(start_step, training_steps_max + 1):
     # Figure out what the current learning rate is.
     training_steps_sum = 0
@@ -254,9 +258,14 @@ def main(_):
       if training_step <= training_steps_sum:
         learning_rate_value = learning_rates_list[i]
         break
+
+    if data_offset > audio_processor.set_size('training') - FLAGS.batch_size:
+      data_offset = 0
+      audio_processor.shuffle_data('training')
+
     # Pull the audio samples we'll use for training.
     train_fingerprints, train_ground_truth = audio_processor.get_data(
-      FLAGS.batch_size, 0, model_settings, FLAGS.background_frequency,
+      FLAGS.batch_size, data_offset, model_settings, FLAGS.background_frequency,
       FLAGS.background_volume, time_shift_samples, 'training', sess)
     # Run the graph with this batch of training data.
     train_summary, train_accuracy, cross_entropy_value, _, _ = sess.run(
