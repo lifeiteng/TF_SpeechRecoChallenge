@@ -138,7 +138,9 @@ class TrimIndexs(object):
 def main(silence_probs_ark, wav_list):
   if not os.path.isfile(wav_list):
     raise ValueError("You must set --data_list <wavfile-list>")
-  logger.info("speed rates: {} volume scales: {}".format(FLAGS.speed_rates, FLAGS.volume_scales))
+  logger.info("speed rates: {} volume scales: {} pitch shifts: {}".format(FLAGS.speed_rates,
+                                                                          FLAGS.volume_scales,
+                                                                          FLAGS.pitch_shifts))
 
   model_settings = prepare_model_settings(FLAGS.sample_rate, FLAGS.clip_duration_ms)
   desired_samples = model_settings['desired_samples']
@@ -168,20 +170,27 @@ def main(silence_probs_ark, wav_list):
       # write_wav_file(data_trim, sr, wav_file)
 
       # speed
-      for sp in [float(v) for v in FLAGS.speed_rates.split(',')]:
-        if sp < 1.0:
-          data_sp = librosa.effects.time_stretch(data_trimed, sp)
-        else:
-          data_sp = librosa.effects.time_stretch(data, sp)
-        wav_file = line.replace('.wav', '_sp{}.wav'.format(sp))
-        pad_and_write(data_sp, sr, wav_file, desired_samples=desired_samples)
+      if FLAGS.speed_rates:
+        for sp in [float(v) for v in FLAGS.speed_rates.split(',')]:
+          if sp < 1.0:
+            data_sp = librosa.effects.time_stretch(data_trimed, sp)
+          else:
+            data_sp = librosa.effects.time_stretch(data, sp)
+          wav_file = line.replace('.wav', '_sp{}.wav'.format(sp))
+          pad_and_write(data_sp, sr, wav_file, desired_samples=desired_samples)
 
       # volume
-      for scale in [float(v) for v in FLAGS.volume_scales.split(',')]:
-        data_vp = data * scale
-        wav_file = line.replace('.wav', '_vp{}.wav'.format(scale))
-        pad_and_write(data_vp, sr, wav_file, desired_samples=desired_samples)
+      if FLAGS.volume_scales:
+        for scale in [float(v) for v in FLAGS.volume_scales.split(',')]:
+          wav_file = line.replace('.wav', '_vp{}.wav'.format(scale))
+          pad_and_write(data * scale, sr, wav_file, desired_samples=desired_samples)
 
+      if FLAGS.pitch_shifts:
+        pitch_shifts = [float(v) for v in FLAGS.pitch_shifts.split(',')]
+        for ps in pitch_shifts:
+          data_ps = librosa.effects.pitch_shift(data, sr, n_steps=ps)
+          wav_file = line.replace('.wav', '_ps{}.wav'.format(ps))
+          pad_and_write(data_ps, sr, wav_file, desired_samples=desired_samples)
 
 if __name__ == '__main__':
   parser = argparse.ArgumentParser("Usage: {} silence_probs.ark wav-list".format(__file__))
@@ -215,6 +224,11 @@ if __name__ == '__main__':
     type=str,
     default='0.8,0.9,1.1,1.2',
     help='Volume rates: e.g. 1.1,1.2')
+  parser.add_argument(
+    '--pitch_shifts',
+    type=str,
+    default='-0.5',
+    help='Pitch shifts: e.g. -1,1')
 
   FLAGS, unparsed = parser.parse_known_args()
   if len(unparsed) != 2:
