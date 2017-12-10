@@ -57,12 +57,12 @@ def write_wav_file(data, sr, wav_file):
 
 def pad_and_write(data, sr, wav_file, desired_samples=16000):
   pad_len = desired_samples - data.shape[0]
-  begin = np.random.randint(abs(pad_len))
-  if pad_len >= 0:
+  begin = np.random.randint(max(abs(pad_len), 1))
+  if pad_len == 0:
+    pass
+  elif pad_len > 0:
     end = pad_len - begin
     data = np.pad(data, [begin, end], mode='constant')
-  elif (pad_len / desired_samples) < 0.02:
-    data = data[begin:begin + desired_samples]
   else:
     logger.warn("Not store data: len = {} desired_samples = {}".format(data.shape[0], desired_samples))
     return
@@ -138,6 +138,7 @@ class TrimIndexs(object):
 def main(silence_probs_ark, wav_list):
   if not os.path.isfile(wav_list):
     raise ValueError("You must set --data_list <wavfile-list>")
+  logger.info("speed rates: {} volume scales: {}".format(FLAGS.speed_rates, FLAGS.volume_scales))
 
   model_settings = prepare_model_settings(FLAGS.sample_rate, FLAGS.clip_duration_ms)
   desired_samples = model_settings['desired_samples']
@@ -146,37 +147,40 @@ def main(silence_probs_ark, wav_list):
                            window_size=FLAGS.window_size, threshold=FLAGS.threshold)
 
   with open(wav_list) as f:
+    num_utts = 0
     for line in f:
       line = line.strip()
       if not line.endswith('.wav'):
         print("Skip line: {}".format(line))
         continue
+      elif line.find('silence') > 0:
+        continue
 
-      logger.info("Process: {}".format('/'.join(line.split('/')[-2:])))
+      num_utts += 1
+      if num_utts % 1000 == 0:
+        logger.info("Processed {} utters".format(num_utts))
+
       data, sr = load_wav_file(line)
-      # for db in [25, 30, 35, 40, 50]:
-      #   data_trim, index = librosa.effects.trim(data / np.max(data), top_db=db, ref=1.0)
-      #   wav_file = line.replace('.wav', '_trim{}.wav'.format(db))
-      #   write_wav_file(data[index[0]:index[1]], sr, wav_file)
+
       index = trim_indexs.get_index(get_key(line))
-      wav_file = line.replace('.wav', '_trim.wav')
-      write_wav_file(data[index[0]:index[1]], sr, wav_file)
+      data_trimed = data[index[0]:index[1]]
+      # wav_file = line.replace('.wav', '_trim.wav')
+      # write_wav_file(data_trim, sr, wav_file)
 
-      # # speed
-      # for sp in [1.1, 1.2]:
-      #   data_sp = librosa.effects.time_stretch(data, sp)
-      #   wav_file = line.replace('.wav', '_sp{}.wav'.format(sp))
-      #   pad_and_write(data_sp, sr, wav_file, desired_samples=desired_samples)
-
-      # for sp in [0.8, 0.9]:
-      #   data_sp = librosa.effects.time_stretch(data_trim, sp)
-      #   # data_sp length -> PAD -> Store
-      #   wav_file = line.replace('.wav', '_sp{}.wav'.format(sp))
-      #   pad_and_write(data_sp, sr, wav_file, desired_samples=desired_samples)
+      # speed
+      for sp in [float(v) for v in FLAGS.speed_rates.split(',')]:
+        if sp < 1.0:
+          data_sp = librosa.effects.time_stretch(data_trimed, sp)
+        else:
+          data_sp = librosa.effects.time_stretch(data, sp)
+        wav_file = line.replace('.wav', '_sp{}.wav'.format(sp))
+        pad_and_write(data_sp, sr, wav_file, desired_samples=desired_samples)
 
       # volume
-      for v in [0.8, 0.9, 1.1, 1.2]:
-        pass
+      for scale in [float(v) for v in FLAGS.volume_scales.split(',')]:
+        data_vp = data * scale
+        wav_file = line.replace('.wav', '_vp{}.wav'.format(scale))
+        pad_and_write(data_vp, sr, wav_file, desired_samples=desired_samples)
 
 
 if __name__ == '__main__':
@@ -200,7 +204,17 @@ if __name__ == '__main__':
     '--threshold',
     type=float,
     default=0.5,
-    help='Trim: silence threshold', )
+    help='Trim: silence threshold')
+  parser.add_argument(
+    '--volume_scales',
+    type=str,
+    default='0.8,0.9,1.1,1.2',
+    help='Volume scales: e.g. 1.1,1.2')
+  parser.add_argument(
+    '--speed_rates',
+    type=str,
+    default='0.8,0.9,1.1,1.2',
+    help='Volume rates: e.g. 1.1,1.2')
 
   FLAGS, unparsed = parser.parse_known_args()
   if len(unparsed) != 2:
