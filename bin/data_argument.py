@@ -13,7 +13,7 @@ import os
 
 import librosa
 import numpy as np
-
+from scipy.io import wavfile
 
 def get_logger(name, time=True):
   logger = logging.getLogger(name)
@@ -26,6 +26,9 @@ def get_logger(name, time=True):
   logger.addHandler(handler)
   return logger
 
+
+max_warn = 1000
+num_warn = 0
 
 logger = get_logger(__name__)
 
@@ -47,15 +50,17 @@ def prepare_model_settings(sample_rate, clip_duration_ms):
 
 
 def load_wav_file(wav_file):
+  """[-1.0, 1.0]"""
   return librosa.load(wav_file, sr=None)
 
 
 def write_wav_file(data, sr, wav_file):
-  np.clip(data, -1.0, 1.0, out=data)
-  librosa.output.write_wav(wav_file, data.astype(np.float32), sr)
+  """Write Int16"""
+  wavfile.write(wav_file, sr, (data * 32768).astype(np.int16))
 
 
 def pad_and_write(data, sr, wav_file, desired_samples=16000):
+  global num_warn, max_warn
   pad_len = desired_samples - data.shape[0]
   begin = np.random.randint(max(abs(pad_len), 1))
   if pad_len == 0:
@@ -64,7 +69,9 @@ def pad_and_write(data, sr, wav_file, desired_samples=16000):
     end = pad_len - begin
     data = np.pad(data, [begin, end], mode='constant')
   else:
-    logger.warn("Not store data: len = {} desired_samples = {}".format(data.shape[0], desired_samples))
+    num_warn += 1
+    if num_warn < max_warn:
+      logger.warn("Not store data: len = {} desired_samples = {}".format(data.shape[0], desired_samples))
     return
 
   assert data.shape[0] == desired_samples
@@ -74,7 +81,8 @@ def pad_and_write(data, sr, wav_file, desired_samples=16000):
 def get_key(line):
   wav_file = line.strip()
   feilds = wav_file.split('/')
-  return feilds[-2] + '_' + feilds[-1].replace('.wav', '')
+  user_id = feilds[-1].split('_')[0]
+  return user_id + '_' + feilds[-2] + '_' + feilds[-1].replace('.wav', '')
 
 
 class TrimIndexs(object):
@@ -97,7 +105,8 @@ class TrimIndexs(object):
       for line in f:
         line = line.strip()
         if line.find(' ]') > 0:
-          assert key not in self._indexs
+          if key in self._indexs:
+            logger.warn("key {} repeated.".format(key))
           assert key != ''
           chunk.append(float(line.split()[0]))
           self._indexs[key] = self._find_start_end(chunk, key=key)
@@ -130,8 +139,12 @@ class TrimIndexs(object):
     assert end > start
     return (start * self.frame_shift, end * self.frame_shift)
 
+  def has_index(self, key):
+    if key in self._indexs:
+      return True
+    return False
+
   def get_index(self, key):
-    assert key in self._indexs
     return self._indexs[key]
 
 
@@ -163,6 +176,9 @@ def main(silence_probs_ark, wav_list):
         logger.info("Processed {} utters".format(num_utts))
 
       data, sr = load_wav_file(line)
+      if not trim_indexs.has_index(get_key(line)):
+        logger.warn("No index for: {}".format(line))
+        continue
 
       index = trim_indexs.get_index(get_key(line))
       data_trimed = data[index[0]:index[1]]
