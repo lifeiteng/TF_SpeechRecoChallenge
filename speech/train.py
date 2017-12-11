@@ -265,10 +265,13 @@ def main(_):
       audio_processor.shuffle_data('training')
 
     # Pull the audio samples we'll use for training.
+    data_start = time.time()
     train_fingerprints, train_ground_truth = audio_processor.get_data(
       FLAGS.batch_size, data_offset, model_settings, FLAGS.background_frequency,
       FLAGS.background_volume, time_shift_samples, 'training', sess)
+    tf.logging.info("---- get_data %s seconds ----" % (time.time() - data_start)[:5])
 
+    data_offset += FLAGS.batch_size
     # Run the graph with this batch of training data.
     train_summary, train_accuracy, cross_entropy_value, _, _ = sess.run(
       [
@@ -283,9 +286,9 @@ def main(_):
       })
     train_writer.add_summary(train_summary, training_step)
     if training_step % 10 == 1:
-      tf.logging.info('Time: %s, step #%d: rate %f, accuracy %.1f%%, cross entropy %f' %
-                      (time.asctime(), training_step, learning_rate_value, train_accuracy * 100,
-                       cross_entropy_value))
+      tf.logging.info('Time: %s, Epoch #%d: step #%d: rate %f, accuracy %.1f%%, cross entropy %f' %
+                      (time.asctime(), int((training_step * FLAGS.batch_size) / audio_processor.set_size('training')),
+                       training_step, learning_rate_value, train_accuracy * 100, cross_entropy_value))
     is_last_step = (training_step == training_steps_max)
     if (training_step % FLAGS.eval_step_interval) == 0 or is_last_step:
       set_size = audio_processor.set_size('validation')
