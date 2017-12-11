@@ -252,7 +252,11 @@ class AudioProcessor(object):
       # If it's a known class, store its detail, otherwise add it to the list
       # we'll use to train the unknown label.
       if word in wanted_words_index:
-        self.data_index[set_index].append({'label': word, 'file': wav_path})
+        if set_index in ['validation', 'testing'] and os.path.basename(wav_path).count('_') > 2:
+          # skip augmented data
+          pass
+        else:
+          self.data_index[set_index].append({'label': word, 'file': wav_path})
       else:
         unknown_index[set_index].append({'label': word, 'file': wav_path})
     if not all_words:
@@ -280,6 +284,7 @@ class AudioProcessor(object):
     # Make sure the ordering is random.
     for set_index in ['validation', 'testing', 'training']:
       random.shuffle(self.data_index[set_index])
+      tf.logging.info("index: {} count: {}".format(set_index, len(self.data_index[set_index])))
     # Prepare the rest of the result data structure.
     self.words_list = prepare_words_list(wanted_words)
     self.word_to_index = {}
