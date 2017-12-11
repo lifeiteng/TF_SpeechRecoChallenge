@@ -12,6 +12,8 @@ opt=
 
 iter=""
 infer_opt=""
+
+data_dir=~/Data/TF_Speech/speech_commands
 test_dir="/home/ftli/Data/TF_Speech/test"
 use_gpu=true
 
@@ -37,7 +39,7 @@ fi
 
 if [ "$mode" = 'train' ];then
   python speech/train.py \
-    --data_dir ~/Data/TF_Speech/speech_commands \
+    --data_dir $data_dir \
     --train_dir $model_dir \
     --how_many_training_steps "$training_steps" --learning_rate "$learning_rate" \
     --resnet_size $resnet_size --optimizer "$opt" --hparams "$hparams" \
@@ -58,7 +60,7 @@ echo "$0: $model_dir/$iter ======="
 mkdir -p submissions
 mkdir -p data
 
-output_csv=$model_dir/${score_prefix}scores_${model}${suffix}_$datestr.csv
+output_csv=$model_dir/scores${score_prefix}_${model}${suffix}_$datestr.csv
 
 python speech/infer.py \
   --data_dir $test_dir \
