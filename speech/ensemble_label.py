@@ -29,6 +29,7 @@ import argparse
 import csv
 import os
 import time
+from collections import defaultdict
 from operator import itemgetter
 
 FLAGS = None
@@ -64,13 +65,18 @@ class color:
     return self.d[color] + string + self.RESET_SEQ
 
 
-
 def load_labels(filename):
   """Read in labels, one label per line."""
   return [line.rstrip() for line in open(filename).readlines()]
 
 
-def load_label_csv(csv_file):
+def get_basename(wav_name):
+  # audio/clip_59c59305c.wav
+  # clip_59c59305c_vp1.2.wav
+  return '_'.join(wav_name.replace('.wav', '').split('_')[:2]) + '.wav'
+
+
+def load_score_csv(csv_file):
   """Loads the model and labels, and runs the inference to print predictions."""
   labels_list = load_labels(FLAGS.labels)
   num_labels = len(labels_list)
@@ -78,7 +84,7 @@ def load_label_csv(csv_file):
 
   with open(csv_file, 'rb') as csvfile:
     reader = csv.reader(csvfile)
-    label = {}
+    label = defaultdict(lambda: [])
     skip_header = True
     has_score = False
     for row in reader:
@@ -91,23 +97,23 @@ def load_label_csv(csv_file):
         skip_header = False
         continue
       assert row[0] not in label
+      basename = get_basename(row[0])
       if has_score:
-        label[row[0]] = [float(v) for v in row[1:]]
+        label[basename].append([float(v) for v in row[1:]])
       else:
         # print(row)
         assert len(row) == 2
-        label[row[0]] = [0.0] * num_labels
-        label[row[0]][label2idx[row[1]]] = 1.0
+        label[basename].append([0.0] * num_labels)
+        label[basename][-1][label2idx[row[1]]] = 1.0
     return label
-
 
 
 colors = color(True)
 
 
-def ensemble_labels(labels, mode):
+def ensemble_labels(all_scores, mode):
   final_label = {}
-  num_labels = [len(label) for label in labels]
+  num_labels = [len(label) for label in all_scores]
   if len(num_labels) > 1:
     assert any(num_labels[i] == num_labels[0] for i in range(1, len(num_labels)))
 
@@ -117,10 +123,15 @@ def ensemble_labels(labels, mode):
   unknown_index = label2index["unknown"]
   silence_index = label2index["silence"]
 
-  for k in labels[0]:
-    scores = [label[k] for label in labels]
+  for k in all_scores[0]:
+    scores = []
+    for score in all_scores:
+      for s in score[k]:
+        scores.append(s)
+
+    num_scores = len(scores)
     if mode == 'argmax':
-      score = [sum(i) for i in zip(*scores)]
+      score = [sum(i) / num_scores for i in zip(*scores)]
       index, value = max(enumerate(score), key=itemgetter(1))
 
       def _relabel_to_unknown():
@@ -151,8 +162,8 @@ def ensemble_labels(labels, mode):
 
 def main(argv):
   """Entry point for script, converts flags to arguments."""
-  labels = [load_label_csv(f) for f in argv[:-1]]
-  label = ensemble_labels(labels, FLAGS.mode)
+  scores = [load_score_csv(f) for f in argv[:-1]]
+  label = ensemble_labels(scores, FLAGS.mode)
   with open(argv[-1], 'wb') as f:
     f.write("fname,label\n")
     for (k, v) in label.items():
