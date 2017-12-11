@@ -53,11 +53,11 @@ with open(data_dir + '/wav.scp', 'w') as wf:
 done
 
 # ./bin/data_argument.py data/train/silence_probs.ark data/train.wavlist
-# utils/run.pl JOB=1:6 data/train/log/data_argument.JOB.log \
-#     ./bin/data_argument.py data/train/silence_probs.ark data/train.wavlist_JOB
+# utils/run.pl JOB=1:6 data/train/log/data_augment.JOB.log \
+#     ./bin/data_augment.py data/train/silence_probs.ark data/train.wavlist_JOB
 # ./bin/data_argument.py data/test/silence_probs.ark data/test.wavlist
 
 # ./utils/split_scp.pl data/test.wavlist data/test.wavlist_1 data/test.wavlist_2 data/test.wavlist_3 data/test.wavlist_4 data/test.wavlist_5 data/test.wavlist_6
-# utils/run.pl JOB=1:6 data/test/log/data_argument.JOB.log ./bin/data_argument.py data/test/silence_probs.ark data/test.wavlist_JOB
+# utils/run.pl JOB=1:6 data/test/log/data_augment.JOB.log ./bin/data_augment.py data/test/silence_probs.ark data/test.wavlist_JOB
 
 echo "$0: DONE"
