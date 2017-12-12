@@ -96,7 +96,8 @@ def load_score_csv(csv_file):
 
         skip_header = False
         continue
-      assert row[0] not in label
+      if row[0] in label:
+        print("repeated wav: {}".format(row[0]))
       basename = get_basename(row[0])
       if has_score:
         label[basename].append([float(v) for v in row[1:]])

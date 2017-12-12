@@ -269,7 +269,7 @@ def main(_):
     train_fingerprints, train_ground_truth = audio_processor.get_data(
       FLAGS.batch_size, data_offset, model_settings, FLAGS.background_frequency,
       FLAGS.background_volume, time_shift_samples, 'training', sess)
-    tf.logging.info("---- get_data %s seconds ----" % (time.time() - data_start)[:5])
+    tf.logging.info("---- get_data %s seconds ----" % str(time.time() - data_start)[:5])
 
     data_offset += FLAGS.batch_size
     # Run the graph with this batch of training data.
