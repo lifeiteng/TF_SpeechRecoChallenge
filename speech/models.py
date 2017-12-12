@@ -114,6 +114,9 @@ def create_model(fingerprint_input, model_settings, model_architecture,
   elif model_architecture == 'resnet':
     return create_resnet_model(fingerprint_input, model_settings,
                                   is_training, hparam_string)
+  elif model_architecture == 'densenet':
+    return create_resnet_model(fingerprint_input, model_settings,
+                                  is_training, hparam_string, densenet=True)
   elif model_architecture == 'lenet':
     return create_lenet_model(fingerprint_input, model_settings,
                               is_training)
@@ -214,7 +217,7 @@ def create_lenet_model(fingerprint_input, model_settings, is_training):
     return logits
 
 
-def create_resnet_model(fingerprint_input, model_settings, is_training, hparam_string):
+def create_resnet_model(fingerprint_input, model_settings, is_training, hparam_string, densenet=False):
   """Builds a resnet model.
 
   Args:
@@ -237,7 +240,13 @@ def create_resnet_model(fingerprint_input, model_settings, is_training, hparam_s
                               [-1, input_time_size, input_frequency_size, 1])
 
   label_count = model_settings['label_count']
-  network = resnet_model.resnet_generator(label_count, dropout_prob, hparam_string=hparam_string, data_format='channels_last')
+  if densenet:
+    network = resnet_model.densenet_generator(label_count, dropout_prob, hparam_string=hparam_string,
+                                            data_format='channels_last')
+  else:
+    network = resnet_model.resnet_generator(label_count, dropout_prob, hparam_string=hparam_string,
+                                            data_format='channels_last')
+
   logits = network(fingerprint_4d, is_training)
 
   if is_training:

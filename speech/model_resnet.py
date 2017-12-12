@@ -324,7 +324,6 @@ def resnet_generator(num_classes, dropout_prob=1.0,
   """Generator for ResNet15 DEEP RESIDUAL LEARNING FOR SMALL-FOOTPRINT KEYWORD SPOTTING.
 
   Args:
-    resnet_size: A single integer for the size of the ResNet model.
     num_classes: The number of possible classes for image classification.
     data_format: The input format ('channels_last', 'channels_first', or None).
       If set to None, the format is dependent on whether a GPU is available.
@@ -445,3 +444,112 @@ def resnet_generator(num_classes, dropout_prob=1.0,
 
   return model
 
+
+def create_densenet_hparams(hparam_string=None):
+  """Create model hyperparameters. Parse nondefault from given string."""
+  hparams = tf.contrib.training.HParams(
+    add_first_batch_norm=True,
+    freeze_first_batch_norm=False,
+    freeze_batch_norm=False,
+    inital_filters=16,
+    dense_blocks=3,  # Number of dense blocks
+    num_layers=40,  # 40, 100
+    growth_rate=12,  # 12, 24, 40
+    add_bottleneck_layer=False,
+    theta=1,
+  )
+
+  if hparam_string:
+    tf.logging.info('Parsing command line hparams: %s', hparam_string)
+    hparams.parse(hparam_string)
+
+  return hparams
+
+
+def densenet_generator(num_classes, dropout_prob=1.0,
+                     data_format="channels_last", hparam_string=''):
+  """Generator for DenseNet: Densely Connected Convolutional Networks.
+  # https://github.com/liuzhuang13/DenseNet/blob/631bff19eecbc0aa75d25cb4b7324f3fc66439cb/models/densenet.lua
+
+  Args:
+    resnet_size: A single integer for the size of the ResNet model.
+    num_classes: The number of possible classes for image classification.
+    data_format: The input format ('channels_last', 'channels_first', or None).
+      If set to None, the format is dependent on whether a GPU is available.
+
+  Returns:
+    The model function that takes in `inputs` and `is_training` and
+    returns the output tensor of the ResNet model.
+
+  Raises:
+    ValueError: If `resnet_size` is invalid.
+  """
+  hparams = create_densenet_hparams(hparam_string)
+
+  def model(inputs, is_training):
+    """Constructs the ResNet model given the inputs."""
+    _, input_time_size, input_frequency_size, _ = inputs.get_shape().as_list()
+    is_training = is_training and (not hparams.freeze_batch_norm)
+    tf.summary.histogram('inputs', inputs)
+    if hparams.add_first_batch_norm:
+      with tf.variable_scope("InitialNorm"):
+        inputs = batch_norm(inputs, is_training=is_training and (not hparams.freeze_first_batch_norm),
+                            data_format=data_format, name='initial_norm')
+      tf.summary.histogram('inputs_batchnorm', inputs)
+
+    with tf.variable_scope('initial_conv'):
+      inputs = conv2d_fixed_padding(
+        inputs=inputs, filters=hparams.inital_filters, kernel_size=3, strides=1,
+        data_format=data_format)
+      inputs = tf.identity(inputs, 'initial_conv')
+
+    def _dense_block(inputs, name=None):
+      with tf.variable_scope(name):
+        preceding_inputs = [inputs]
+
+        for i in range(hparams.num_layers):
+          with tf.variable_scope('Layers{}'.format(i)):
+            inputs = tf.concat(preceding_inputs, axis=-1)
+            if hparams.add_bottleneck_layer:
+              # DenseNet-B
+              inputs = batch_norm_relu(inputs, is_training=is_training, data_format=data_format)
+              inputs = conv2d_fixed_padding(inputs=inputs, filters=4*hparams.growth_rate,
+                                            kernel_size=1, strides=1, data_format=data_format)
+
+            inputs = batch_norm_relu(inputs, is_training=is_training, data_format=data_format)
+            inputs = conv2d_fixed_padding(
+              inputs=inputs, filters=hparams.growth_rate, kernel_size=3, strides=1,
+              data_format=data_format)
+            preceding_inputs.append(inputs)
+        return inputs
+
+    for x in range(1, hparams.dense_blocks + 1):
+      inputs = _dense_block(inputs=inputs, name='DenseBlock{}'.format(x))
+      if x != hparams.dense_blocks:
+        with tf.variable_scope('TransitionLayer{}'.format(x)):
+          inputs = batch_norm(inputs, is_training=is_training, data_format=data_format)
+          # TODO test ReLU
+
+          # 1x1 conv
+          num_filters = hparams.growth_rate
+          if hparams.theta < 1:
+            # DenseNet-C
+            num_filters = int(num_filters * hparams.theta)
+          inputs = conv2d_fixed_padding(
+              inputs=inputs, filters=num_filters, kernel_size=1, strides=1,
+              data_format=data_format)
+
+          # pooling
+          inputs = tf.layers.average_pooling2d(inputs, pool_size=2, padding='same',
+                                               strides=2, data_format=data_format)
+
+    # global average pooling
+    assert data_format == 'channels_last'
+    inputs = tf.reduce_mean(inputs, [1, 2], name='GlobalAveragePooling')
+
+    inputs = tf.reshape(inputs, [-1, hparams.growth_rate])
+    inputs = tf.layers.dense(inputs=inputs, units=num_classes)
+    inputs = tf.identity(inputs, 'final_logits')
+    return inputs
+
+  return model
