@@ -497,7 +497,7 @@ def densenet_generator(num_classes, dropout_prob=1.0,
                             data_format=data_format, name='initial_norm')
       tf.summary.histogram('inputs_batchnorm', inputs)
 
-    with tf.variable_scope('initial_conv'):
+    with tf.variable_scope('InitialConv'):
       inputs = conv2d_fixed_padding(
         inputs=inputs, filters=hparams.inital_filters, kernel_size=3, strides=1,
         data_format=data_format)
@@ -520,14 +520,17 @@ def densenet_generator(num_classes, dropout_prob=1.0,
             inputs = conv2d_fixed_padding(
               inputs=inputs, filters=hparams.growth_rate, kernel_size=3, strides=1,
               data_format=data_format)
+            inputs = tf.layers.dropout(inputs, rate=dropout_prob, training=is_training)
+
             preceding_inputs.append(inputs)
         return inputs
 
     for x in range(1, hparams.dense_blocks + 1):
       inputs = _dense_block(inputs=inputs, name='DenseBlock{}'.format(x))
+      inputs = batch_norm_relu(inputs, is_training=is_training, data_format=data_format)
+
       if x != hparams.dense_blocks:
         with tf.variable_scope('TransitionLayer{}'.format(x)):
-          inputs = batch_norm(inputs, is_training=is_training, data_format=data_format)
           # TODO test ReLU
 
           # 1x1 conv
@@ -538,7 +541,7 @@ def densenet_generator(num_classes, dropout_prob=1.0,
           inputs = conv2d_fixed_padding(
               inputs=inputs, filters=num_filters, kernel_size=1, strides=1,
               data_format=data_format)
-
+          inputs = tf.layers.dropout(inputs, rate=dropout_prob, training=is_training)
           # pooling
           inputs = tf.layers.average_pooling2d(inputs, pool_size=2, padding='same',
                                                strides=2, data_format=data_format)
@@ -549,7 +552,7 @@ def densenet_generator(num_classes, dropout_prob=1.0,
 
     inputs = tf.reshape(inputs, [-1, hparams.growth_rate])
     inputs = tf.layers.dense(inputs=inputs, units=num_classes)
-    inputs = tf.identity(inputs, 'final_logits')
+    inputs = tf.identity(inputs, 'FinalLogits')
     return inputs
 
   return model
