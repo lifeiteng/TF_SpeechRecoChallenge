@@ -506,12 +506,14 @@ def densenet_generator(num_classes, dropout_prob=1.0,
         inputs = batch_norm(inputs, is_training=is_training and (not hparams.freeze_first_batch_norm),
                             data_format=data_format, name='initial_norm')
       tf.summary.histogram('inputs_batchnorm', inputs)
+    inputs = tf.layers.dropout(inputs, rate=dropout_prob, training=is_training)
 
     with tf.variable_scope('InitialConv'):
       inputs = conv2d_fixed_padding(
         inputs=inputs, filters=hparams.inital_filters, kernel_size=(3,10), strides=(1,4),
         data_format=data_format)
       inputs = tf.identity(inputs, 'initial_conv')
+    inputs = tf.layers.dropout(inputs, rate=dropout_prob, training=is_training)
 
     def _dense_block(inputs, name=None):
       with tf.variable_scope(name):
@@ -540,8 +542,6 @@ def densenet_generator(num_classes, dropout_prob=1.0,
 
       if x != hparams.dense_blocks:
         with tf.variable_scope('TransitionLayer{}'.format(x)):
-          # TODO test ReLU
-
           # 1x1 conv
           num_filters = hparams.growth_rate
           if hparams.theta < 1:
@@ -557,9 +557,12 @@ def densenet_generator(num_classes, dropout_prob=1.0,
 
     # global average pooling
     assert data_format == 'channels_last'
-    inputs = tf.reduce_mean(inputs, [1, 2], name='GlobalAveragePooling')
+    inputs_max = tf.reduce_max(inputs, [1, 2], name='GlobalMaximumPooling')
+    inputs_avg = tf.reduce_mean(inputs, [1, 2], name='GlobalAveragePooling')
+    inputs = tf.concat([inputs_max, inputs_avg], axis=1)
+    inputs = tf.identity(inputs, 'FinalPool')
 
-    inputs = tf.reshape(inputs, [-1, hparams.growth_rate])
+    inputs = tf.layers.dropout(inputs, rate=dropout_prob, training=is_training)
     inputs = tf.layers.dense(inputs=inputs, units=num_classes)
     inputs = tf.identity(inputs, 'FinalLogits')
     return inputs
