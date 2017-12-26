@@ -89,16 +89,25 @@ def fixed_padding(inputs, kernel_size, data_format):
     A tensor with the same format as the input with the data either intact
     (if kernel_size == 1) or padded (if kernel_size > 1).
   """
-  pad_total = kernel_size - 1
-  pad_beg = pad_total // 2
-  pad_end = pad_total - pad_beg
+  if isinstance(kernel_size, int):
+    pad_total = kernel_size - 1
+    pad_beg1 = pad_total // 2
+    pad_end1 = pad_total - pad_beg1
+    pad_beg2 = pad_beg1
+    pad_end2 = pad_end1
+  else:
+    assert isinstance(kernel_size, tuple)
+    pad_beg1 = kernel_size[0] // 2
+    pad_end1 = kernel_size[0] - pad_beg1
+    pad_beg2 = kernel_size[1] // 2
+    pad_end2 = kernel_size[1] - pad_beg2
 
   if data_format == 'channels_first':
     padded_inputs = tf.pad(inputs, [[0, 0], [0, 0],
-                                    [pad_beg, pad_end], [pad_beg, pad_end]])
+                                    [pad_beg1, pad_end1], [pad_beg2, pad_end2]])
   else:
-    padded_inputs = tf.pad(inputs, [[0, 0], [pad_beg, pad_end],
-                                    [pad_beg, pad_end], [0, 0]])
+    padded_inputs = tf.pad(inputs, [[0, 0], [pad_beg1, pad_end1],
+                                    [pad_beg2, pad_end2], [0, 0]])
   return padded_inputs
 
 
@@ -336,6 +345,7 @@ def resnet_generator(num_classes, dropout_prob=1.0,
     ValueError: If `resnet_size` is invalid.
   """
   hparams = create_hparams(hparam_string)
+  dropout_prob = 1 - dropout_prob
 
   def model(inputs, is_training):
     """Constructs the ResNet model given the inputs."""
@@ -354,12 +364,14 @@ def resnet_generator(num_classes, dropout_prob=1.0,
         inputs = batch_norm(inputs, is_training=freeze_batch_norm and (not hparams.freeze_first_batch_norm),
                             data_format=data_format, name='initial_norm')
       tf.summary.histogram('inputs_batchnorm', inputs)
+    inputs = tf.layers.dropout(inputs, rate=dropout_prob, training=is_training)
 
     with tf.variable_scope('initial_conv'):
       inputs = conv_fn(
-        inputs=inputs, filters=hparams.resnet_filters, kernel_size=3, strides=1,
+        inputs=inputs, filters=hparams.resnet_filters, kernel_size=(3,10), strides=(1,4),
         data_format=data_format)
       inputs = tf.identity(inputs, 'initial_conv')
+    inputs = tf.layers.dropout(inputs, rate=dropout_prob, training=is_training)
 
     def _residual_block(inputs, filters=hparams.resnet_filters, dilations=(0, 0), name=None):
       with tf.variable_scope(name):
@@ -405,6 +417,7 @@ def resnet_generator(num_classes, dropout_prob=1.0,
       inputs = _residual_block(inputs=inputs, filters=hparams.resnet_filters,
                                dilations=(_dilation(2 * x), _dilation(2 * x + 1)),
                                name='block_layer{}'.format(x))
+      inputs = tf.layers.dropout(inputs, rate=dropout_prob, training=is_training)
 
     with tf.variable_scope("final_conv"):
       inputs = conv_fn(inputs, filters=hparams.resnet_filters, kernel_size=3, strides=1,
@@ -425,19 +438,15 @@ def resnet_generator(num_classes, dropout_prob=1.0,
       inputs = tf.reshape(inputs, [-1, hparams.resnet_filters * output_size])
       inputs = tf.identity(inputs, 'final_avg_pool')
     else:
-      pooling_fn = tf.layers.average_pooling2d
-      pool_size = (input_time_size, input_frequency_size)
-      if hparams.pooling_type == 'max':
-        pooling_fn = tf.layers.max_pooling2d
-      inputs = pooling_fn(
-        inputs=inputs, pool_size=pool_size, strides=(1, 1), padding='VALID', data_format=data_format)
-
-      inputs = tf.reshape(inputs, [-1, hparams.resnet_filters])
-      inputs = tf.identity(inputs, 'final_avg_pool')
+      inputs_max = tf.reduce_max(inputs, [1, 2], name='GlobalMaximumPooling')
+      inputs_avg = tf.reduce_mean(inputs, [1, 2], name='GlobalAveragePooling')
+      inputs = tf.concat([inputs_max, inputs_avg], axis=1)
+      inputs = tf.identity(inputs, 'final_pool')
     if hparams.bottleneck_sizes[0] > 0:
       for i, size in enumerate(hparams.bottleneck_sizes):
         inputs = tf.layers.dense(inputs=inputs, units=size, name="final_bn{}".format(i))
 
+    inputs = tf.layers.dropout(inputs, rate=dropout_prob, training=is_training)
     inputs = tf.layers.dense(inputs=inputs, units=num_classes)
     inputs = tf.identity(inputs, 'final_logits')
     return inputs
@@ -485,6 +494,7 @@ def densenet_generator(num_classes, dropout_prob=1.0,
     ValueError: If `resnet_size` is invalid.
   """
   hparams = create_densenet_hparams(hparam_string)
+  dropout_prob = 1 - dropout_prob
 
   def model(inputs, is_training):
     """Constructs the ResNet model given the inputs."""
@@ -499,14 +509,13 @@ def densenet_generator(num_classes, dropout_prob=1.0,
 
     with tf.variable_scope('InitialConv'):
       inputs = conv2d_fixed_padding(
-        inputs=inputs, filters=hparams.inital_filters, kernel_size=3, strides=1,
+        inputs=inputs, filters=hparams.inital_filters, kernel_size=(3,10), strides=(1,4),
         data_format=data_format)
       inputs = tf.identity(inputs, 'initial_conv')
 
     def _dense_block(inputs, name=None):
       with tf.variable_scope(name):
         preceding_inputs = [inputs]
-
         for i in range(hparams.num_layers):
           with tf.variable_scope('Layers{}'.format(i)):
             inputs = tf.concat(preceding_inputs, axis=-1)
