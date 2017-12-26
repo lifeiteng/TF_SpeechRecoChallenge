@@ -257,6 +257,8 @@ class AudioProcessor(object):
           pass
         else:
           self.data_index[set_index].append({'label': word, 'file': wav_path})
+          if set_index != 'training':  # use all data for training
+            self.data_index['training'].append({'label': word, 'file': wav_path})
       else:
         unknown_index[set_index].append({'label': word, 'file': wav_path})
     if not all_words:
@@ -379,16 +381,38 @@ class AudioProcessor(object):
                                  self.background_volume_placeholder_)
     background_add = tf.add(background_mul, sliced_foreground)
     background_clamp = tf.clip_by_value(background_add, -1.0, 1.0)
-    # Run the spectrogram and MFCC ops to get a 2D 'fingerprint' of the audio.
-    spectrogram = contrib_audio.audio_spectrogram(
-      background_clamp,
-      window_size=model_settings['window_size_samples'],
-      stride=model_settings['window_stride_samples'],
-      magnitude_squared=True)
-    self.mfcc_ = contrib_audio.mfcc(
-      spectrogram,
-      wav_decoder.sample_rate,
-      dct_coefficient_count=model_settings['dct_coefficient_count'])
+    if model_settings['feature_type'] == 'mfcc':
+      # Run the spectrogram and MFCC ops to get a 2D 'fingerprint' of the audio.
+      spectrogram = contrib_audio.audio_spectrogram(
+        background_clamp,
+        window_size=model_settings['window_size_samples'],
+        stride=model_settings['window_stride_samples'],
+        magnitude_squared=True)
+      self.mfcc_ = contrib_audio.mfcc(
+        spectrogram,
+        wav_decoder.sample_rate,
+        upper_frequency_limit=float(model_settings['sample_rate'] / 2 - 200),
+        dct_coefficient_count=model_settings['dct_coefficient_count'],
+        filterbank_channel_count=model_settings['dct_coefficient_count'])
+    elif model_settings['feature_type'] == 'fbank':
+      # Fbank feature
+      mel_bias_ = tf.contrib.signal.linear_to_mel_weight_matrix(num_mel_bins=model_settings['dct_coefficient_count'],
+                                                                num_spectrogram_bins=int(2048 / 2 + 1),
+                                                                sample_rate=model_settings['sample_rate'],
+                                                                lower_edge_hertz=125,
+                                                                upper_edge_hertz=float(
+                                                                  model_settings['sample_rate'] / 2 - 200))
+
+      spectrogram = tf.abs(tf.contrib.signal.stft(tf.transpose(background_clamp),
+                                                  model_settings['window_size_samples'],
+                                                  model_settings['window_stride_samples'],
+                                                  fft_length=2048,
+                                                  window_fn=tf.contrib.signal.hann_window,
+                                                  pad_end=False))
+      S = tf.matmul(tf.reshape(tf.pow(spectrogram, 2), [-1, 1025]), mel_bias_)
+      self.mfcc_ = tf.log(tf.maximum(S, 1e-4))
+    else:
+      raise ValueError("not supported feature_type: {}".format(model_settings['feature_type']))
 
   def set_size(self, mode):
     """Calculates the number of samples in the dataset partition.
@@ -548,7 +572,7 @@ class AudioProcessor(object):
   def apply_feature_scaling(data, feature_scaling, dct_coefficient_count):
     if feature_scaling.lower() == 'cmvn':
       bs, fs = data.shape
-      data = np.reshape(data, [bs, fs / dct_coefficient_count, dct_coefficient_count])
+      data = np.reshape(data, [bs, dct_coefficient_count, fs / dct_coefficient_count])
       mean = np.expand_dims(np.mean(data, axis=1), axis=1)
       std = np.expand_dims(np.maximum(np.std(data, axis=1), 1e-6), axis=1)
       return np.reshape((data - mean) / std, [bs, -1])

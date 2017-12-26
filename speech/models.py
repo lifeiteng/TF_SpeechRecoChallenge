@@ -30,7 +30,7 @@ import tensorflow as tf
 
 def prepare_model_settings(label_count, sample_rate, clip_duration_ms,
                            window_size_ms, window_stride_ms,
-                           dct_coefficient_count, resnet_size=32):
+                           dct_coefficient_count, feature_type):
   """Calculates common settings needed for all models.
 
   Args:
@@ -62,7 +62,7 @@ def prepare_model_settings(label_count, sample_rate, clip_duration_ms,
     'fingerprint_size': fingerprint_size,
     'label_count': label_count,
     'sample_rate': sample_rate,
-    'resnet_size': resnet_size
+    'feature_type': feature_type
   }
 
 

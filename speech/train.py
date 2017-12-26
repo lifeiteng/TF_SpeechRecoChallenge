@@ -126,7 +126,7 @@ def main(_):
   model_settings = models.prepare_model_settings(
     len(input_data.prepare_words_list(FLAGS.wanted_words.split(','))),
     FLAGS.sample_rate, FLAGS.clip_duration_ms, FLAGS.window_size_ms,
-    FLAGS.window_stride_ms, FLAGS.dct_coefficient_count, FLAGS.resnet_size)
+    FLAGS.window_stride_ms, FLAGS.dct_coefficient_count, FLAGS.feature_type)
 
   fingerprint_size = model_settings['fingerprint_size']
   label_count = model_settings['label_count']
@@ -177,8 +177,12 @@ def main(_):
   with tf.name_scope('train'), tf.control_dependencies(control_dependencies):
     learning_rate_input = tf.placeholder(
       tf.float32, [], name='learning_rate_input')
-    optimizer = tf.contrib.layers.OPTIMIZER_CLS_NAMES[optimizer_name](
-      learning_rate=learning_rate_input, **optimizer_params)
+    if optimizer_name == 'Momentum':
+      optimizer = tf.train.MomentumOptimizer(learning_rate=learning_rate_input,
+                                             **optimizer_params)
+    else:
+      optimizer = tf.contrib.layers.OPTIMIZER_CLS_NAMES[optimizer_name](
+        learning_rate=learning_rate_input, **optimizer_params)
 
     def _clip_gradients(grads_and_vars, value):
       """Clips gradients by global norm."""
@@ -517,6 +521,11 @@ if __name__ == '__main__':
     type=str,
     default='',  # '' 'cmvn'
     help='Feature normalization')
+  parser.add_argument(
+    '--feature_type',
+    type=str,
+    default='mfcc',  #
+    help='Feature type (e.g. mfcc or fbank)')
 
   FLAGS, unparsed = parser.parse_known_args()
   tf.app.run(main=main, argv=[sys.argv[0]] + unparsed)
