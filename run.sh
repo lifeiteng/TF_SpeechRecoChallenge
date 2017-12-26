@@ -16,6 +16,7 @@ infer_opt=""
 data_dir=~/Data/TF_Speech/speech_commands
 test_dir="/home/ftli/Data/TF_Speech/test"
 use_gpu=true
+train_opts=""
 
 skip_infer=false
 
@@ -39,13 +40,17 @@ fi
 
 if [ "$mode" = 'train' ];then
   python speech/train.py \
-    --data_dir $data_dir \
+    --data_dir $data_dir $train_opts \
     --train_dir $model_dir \
     --how_many_training_steps "$training_steps" --learning_rate "$learning_rate" \
     --resnet_size $resnet_size --optimizer "$opt" --hparams "$hparams" \
     --summaries_dir $model_dir/summaries \
     --model_architecture "$model" --window_size_ms 30.0 --window_stride_ms 10.0 \
     --batch_size $batch_size --feature_scaling "$feature_scaling"
+  if $skip_infer;then
+    echo "$0: skip infer."
+    exit 0
+  fi
 fi
 
 # [ ! -z "$mode" ] && datestr=$mode
@@ -63,7 +68,7 @@ mkdir -p data
 output_csv=$model_dir/scores${score_prefix}_${model}${suffix}_$datestr.csv
 
 python speech/infer.py \
-  --data_dir $test_dir \
+  --data_dir $test_dir $train_opts \
   --train_dir $model_dir \
   --resnet_size $resnet_size --hparams "$hparams" \
   --model_architecture "$model" --window_size_ms 30.0 --window_stride_ms 10.0 \
