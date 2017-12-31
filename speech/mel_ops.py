@@ -23,6 +23,7 @@ from tensorflow.python.framework import dtypes
 from tensorflow.python.framework import ops
 from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import math_ops
+from tensorflow.python.ops import control_flow_ops
 
 # mel spectrum constants.
 _MEL_BREAK_FREQUENCY_HERTZ = 700.0
@@ -90,6 +91,7 @@ def linear_to_mel_weight_matrix(num_mel_bins=20,
                                 lower_edge_hertz=125.0,
                                 upper_edge_hertz=3800.0,
                                 dtype=dtypes.float32,
+                                warp_factor=1.0,
                                 name=None):
   """Returns a matrix to warp linear scale spectrograms to the [mel scale][mel].
 
@@ -174,6 +176,15 @@ def linear_to_mel_weight_matrix(num_mel_bins=20,
         math_ops.linspace(_hertz_to_mel(lower_edge_hertz),
                           _hertz_to_mel(upper_edge_hertz),
                           num_mel_bins + 2), frame_length=3, frame_step=1)
+
+    if (not isinstance(warp_factor, float)) or (warp_factor != 1.0):
+      boundary_frequency = 4800
+      pre_cond = boundary_frequency * math_ops.minimum(warp_factor, 1.0)
+      half_sr = sample_rate / 2
+      y_value = half_sr -(half_sr - pre_cond)/(half_sr - pre_cond/warp_factor)*(half_sr - band_edges_mel)
+      band_edges_mel = array_ops.where(band_edges_mel <= math_ops.divide(pre_cond, warp_factor),
+                                   x=band_edges_mel*warp_factor,
+                                   y=y_value)
 
     # Split the triples up and reshape them into [1, num_mel_bins] tensors.
     lower_edge_mel, center_mel, upper_edge_mel = tuple(array_ops.reshape(
