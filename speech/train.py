@@ -180,6 +180,8 @@ def main(_):
     if optimizer_name == 'Momentum':
       optimizer = tf.train.MomentumOptimizer(learning_rate=learning_rate_input,
                                              **optimizer_params)
+    elif optimizer_name.lower() == 'nadam':
+      tf.contrib.opt.NadamOptimizer(learning_rate=learning_rate_input, **optimizer_params)
     else:
       optimizer = tf.contrib.layers.OPTIMIZER_CLS_NAMES[optimizer_name](
         learning_rate=learning_rate_input, **optimizer_params)
@@ -191,7 +193,12 @@ def main(_):
 
       return list(zip(gradients, variables))
 
-    grad_vars = optimizer.compute_gradients(cross_entropy_mean)
+    reg_loss = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
+    if len(reg_loss):
+      tf.logging.info("add regularization loss")
+      grad_vars = optimizer.compute_gradients(cross_entropy_mean + tf.reduce_mean(reg_loss))
+    else:
+      grad_vars = optimizer.compute_gradients(cross_entropy_mean)
     if clip_gradients > 0.0:
       grad_vars = _clip_gradients(grad_vars, clip_gradients)
 
@@ -210,7 +217,7 @@ def main(_):
   global_step = tf.contrib.framework.get_or_create_global_step()
   increment_global_step = tf.assign(global_step, global_step + 1)
 
-  saver = tf.train.Saver(tf.global_variables())
+  saver = tf.train.Saver(tf.global_variables(), max_to_keep=100)
 
   # Merge all the summaries and write them out to /tmp/retrain_logs (by default)
   merged_summaries = tf.summary.merge_all()
