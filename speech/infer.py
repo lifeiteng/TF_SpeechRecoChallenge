@@ -93,6 +93,11 @@ class AudioProcessor(object):
                                  self.time_shift_offset_placeholder_,
                                  [desired_samples, -1])
 
+    # Preemphasize
+    sliced_foreground = tf.concat([tf.reshape(sliced_foreground[0] - 0.97 * sliced_foreground[0], [1, 1]),
+                                   sliced_foreground[1:] - 0.97 * sliced_foreground[:-1]], axis=0)
+
+
     if model_settings['feature_type'] == 'mfcc':
       # Run the spectrogram and MFCC ops to get a 2D 'fingerprint' of the audio.
       spectrogram = contrib_audio.audio_spectrogram(
