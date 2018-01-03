@@ -29,7 +29,6 @@ import tarfile
 
 import numpy as np
 import tensorflow as tf
-from scipy import signal
 from six.moves import urllib
 from six.moves import xrange  # pylint: disable=redefined-builtin
 from tensorflow.contrib.framework.python.ops import audio_ops as contrib_audio
@@ -157,12 +156,12 @@ class AudioProcessor(object):
                wanted_words, validation_percentage, testing_percentage,
                model_settings, feature_scaling=''):
     self.data_dir = data_dir
-    self.prepare_processing_graph(model_settings)
     self.maybe_download_and_extract_dataset(data_url, data_dir)
     self.prepare_data_index(silence_percentage, unknown_percentage,
                             wanted_words, validation_percentage,
                             testing_percentage)
     self.prepare_background_data()
+    self.prepare_processing_graph(model_settings)
 
     self.feature_scaling = feature_scaling
 
@@ -382,18 +381,13 @@ class AudioProcessor(object):
     self.background_volume_placeholder_ = tf.placeholder(tf.float32, [])
     background_mul = tf.multiply(self.background_data_placeholder_,
                                  self.background_volume_placeholder_)
-    background_add = tf.clip_by_value(tf.add(background_mul, sliced_foreground), -1.0, 1.0)
-
-    # Preemphasize
-    background_clip = tf.concat([tf.reshape(background_add[0] - 0.97 * background_add[0], [1, 1]),
-                                 background_add[1:] - 0.97 * background_add[:-1]], axis=0)
-
+    background_add = tf.add(background_mul, sliced_foreground)
+    background_clamp = tf.clip_by_value(background_add, -1.0, 1.0)
     self.warp_factor_placeholder_ = tf.placeholder(tf.float64, [])
-
     if model_settings['feature_type'] == 'mfcc':
       # Run the spectrogram and MFCC ops to get a 2D 'fingerprint' of the audio.
       spectrogram = contrib_audio.audio_spectrogram(
-        background_clip,
+        background_clamp,
         window_size=model_settings['window_size_samples'],
         stride=model_settings['window_stride_samples'],
         magnitude_squared=True)
@@ -412,7 +406,7 @@ class AudioProcessor(object):
                                               upper_edge_hertz=float(
                                                 model_settings['sample_rate'] / 2 - 200),
                                               warp_factor=self.warp_factor_placeholder_)
-      spectrogram = tf.abs(tf.contrib.signal.stft(tf.transpose(background_clip),
+      spectrogram = tf.abs(tf.contrib.signal.stft(tf.transpose(background_clamp),
                                                   model_settings['window_size_samples'],
                                                   model_settings['window_stride_samples'],
                                                   fft_length=2048,
@@ -531,8 +525,8 @@ class AudioProcessor(object):
       # warp_factor = random.uniform(0.9, 1.1) if (mode == 'training') else 1.0
 
       input_dict[self.warp_factor_placeholder_] = warp_factor
+      # Run the graph to produce the output audio.
       data[i - offset, :] = sess.run(self.mfcc_, feed_dict=input_dict).flatten()
-
       label_index = self.word_to_index[sample['label']]
       labels[i - offset, label_index] = 1
     return data, labels
