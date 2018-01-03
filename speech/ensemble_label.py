@@ -31,6 +31,8 @@ import csv
 import os
 import time
 from collections import defaultdict
+from collections import Counter
+
 from operator import itemgetter
 
 FLAGS = None
@@ -155,7 +157,16 @@ def ensemble_labels(all_scores, mode):
       final_label[k] = labels_list[index]
       if FLAGS.tune and _relabel_to_unknown():
         final_label[k] = "unknown"
-
+    elif mode == 'voting':
+      score_avg = [sum(i) / num_scores for i in zip(*scores)]
+      indexes = [max(enumerate(score), key=itemgetter(1))[0] for score in scores]
+      founds = Counter(indexes).most_common(2)
+      index = founds[0][0]
+      if len(founds) == 2:
+        if founds[0][1] == founds[1][1]:
+          if score_avg[founds[1][0]] > score_avg[founds[0][0]]:
+            index = founds[1][0]
+      final_label[k] = labels_list[index]
     else:
       raise NotImplementedError
 
