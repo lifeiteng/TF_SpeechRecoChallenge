@@ -523,7 +523,7 @@ class AudioProcessor(object):
       if sample['label'] == SILENCE_LABEL:
         input_dict[self.foreground_volume_placeholder_] = 0
       else:
-        input_dict[self.foreground_volume_placeholder_] = 1
+        input_dict[self.foreground_volume_placeholder_] = random.uniform(0.9, 1.5)
       warp_factor = 1.0
       # if mode == 'training':
       #   warp_factor = random.gauss(1.0, 0.1)
