@@ -181,7 +181,7 @@ def main(_):
       optimizer = tf.train.MomentumOptimizer(learning_rate=learning_rate_input,
                                              **optimizer_params)
     elif optimizer_name.lower() == 'nadam':
-      tf.contrib.opt.NadamOptimizer(learning_rate=learning_rate_input, **optimizer_params)
+      optimizer = tf.contrib.opt.NadamOptimizer(learning_rate=learning_rate_input, **optimizer_params)
     else:
       optimizer = tf.contrib.layers.OPTIMIZER_CLS_NAMES[optimizer_name](
         learning_rate=learning_rate_input, **optimizer_params)
@@ -486,13 +486,8 @@ if __name__ == '__main__':
   parser.add_argument(
     '--save_step_interval',
     type=int,
-    default=100,
+    default=1000,
     help='Save model checkpoint every save_steps.')
-  parser.add_argument(
-    '--resnet_size',
-    type=int,
-    default=32,
-    help='Residual model layers.')
   parser.add_argument(
     '--start_checkpoint',
     type=str,
