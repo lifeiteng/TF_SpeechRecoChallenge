@@ -111,9 +111,9 @@ def create_model(fingerprint_input, model_settings, model_architecture,
   elif model_architecture == 'low_latency_svdf':
     return create_low_latency_svdf_model(fingerprint_input, model_settings,
                                          is_training, runtime_settings)
-  elif model_architecture == 'resnet':
+  elif model_architecture.startswith('resnet'):
     return create_resnet_model(fingerprint_input, model_settings,
-                                  is_training, hparam_string)
+                                  is_training, hparam_string, name=model_architecture)
   elif model_architecture == 'densenet':
     return create_resnet_model(fingerprint_input, model_settings,
                                   is_training, hparam_string, densenet=True)
@@ -217,7 +217,8 @@ def create_lenet_model(fingerprint_input, model_settings, is_training):
     return logits
 
 
-def create_resnet_model(fingerprint_input, model_settings, is_training, hparam_string, densenet=False):
+def create_resnet_model(fingerprint_input, model_settings, is_training,
+                        hparam_string, densenet=False, name='resnet'):
   """Builds a resnet model.
 
   Args:
@@ -243,9 +244,14 @@ def create_resnet_model(fingerprint_input, model_settings, is_training, hparam_s
   if densenet:
     network = resnet_model.densenet_generator(label_count, dropout_prob, hparam_string=hparam_string,
                                             data_format='channels_last')
-  else:
+  elif name =='resnet':
     network = resnet_model.resnet_generator(label_count, dropout_prob, hparam_string=hparam_string,
                                             data_format='channels_last')
+  elif name =='resnetft':
+    network = resnet_model.resnetft_generator(label_count, dropout_prob, hparam_string=hparam_string,
+                                            data_format='channels_last')
+  else:
+    raise ValueError("not known architecture: {}".format(name))
 
   logits = network(fingerprint_4d, is_training)
 
