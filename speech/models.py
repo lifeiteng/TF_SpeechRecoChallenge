@@ -283,14 +283,8 @@ def create_mobilenet_model(fingerprint_input, model_settings, is_training, hpara
                               [-1, input_time_size, input_frequency_size, 1])
 
   label_count = model_settings['label_count']
-  if hparam_string == 'mobilenet_v1_075':
-    logits, _ = mobilenet_model.mobilenet_v1_075(fingerprint_4d, dropout_keep_prob=dropout_prob, num_classes=label_count, is_training=is_training)
-  elif hparam_string == 'mobilenet_v1_050':
-    logits, _ = mobilenet_model.mobilenet_v1_050(fingerprint_4d, dropout_keep_prob=dropout_prob, num_classes=label_count, is_training=is_training)
-  elif hparam_string == 'mobilenet_v1_025':
-    logits, _ = mobilenet_model.mobilenet_v1_025(fingerprint_4d, dropout_keep_prob=dropout_prob, num_classes=label_count, is_training=is_training)
-  else:
-    logits, _ = mobilenet_model.mobilenet_v1(fingerprint_4d, dropout_keep_prob=dropout_prob, num_classes=label_count, is_training=is_training)
+  logits, _ = mobilenet_model.mobilenet_v1(fingerprint_4d, dropout_keep_prob=dropout_prob,
+    num_classes=label_count, is_training=is_training, hparam_string=hparam_string)
 
   if is_training:
     return logits, dropout_prob

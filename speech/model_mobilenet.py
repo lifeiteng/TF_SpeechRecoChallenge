@@ -105,8 +105,8 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from collections import namedtuple
 import functools
+from collections import namedtuple
 
 import tensorflow as tf
 
@@ -122,20 +122,22 @@ DepthSepConv = namedtuple('DepthSepConv', ['kernel', 'stride', 'depth'])
 
 # _CONV_DEFS specifies the MobileNet body
 _CONV_DEFS = [
-    Conv(kernel=[3, 3], stride=2, depth=32),
-    DepthSepConv(kernel=[3, 3], stride=1, depth=64),
-    DepthSepConv(kernel=[3, 3], stride=2, depth=128),
-    DepthSepConv(kernel=[3, 3], stride=1, depth=128),
-    DepthSepConv(kernel=[3, 3], stride=2, depth=256),
-    DepthSepConv(kernel=[3, 3], stride=1, depth=256),
-    DepthSepConv(kernel=[3, 3], stride=2, depth=512),
-    DepthSepConv(kernel=[3, 3], stride=1, depth=512),
-    DepthSepConv(kernel=[3, 3], stride=1, depth=512),
-    DepthSepConv(kernel=[3, 3], stride=1, depth=512),
-    DepthSepConv(kernel=[3, 3], stride=1, depth=512),
-    DepthSepConv(kernel=[3, 3], stride=1, depth=512),
-    DepthSepConv(kernel=[3, 3], stride=2, depth=1024),
-    DepthSepConv(kernel=[3, 3], stride=1, depth=1024)
+  Conv(kernel=[3, 3], stride=2, depth=32),
+  DepthSepConv(kernel=[3, 3], stride=1, depth=32),
+  DepthSepConv(kernel=[3, 3], stride=2, depth=32),
+  DepthSepConv(kernel=[3, 3], stride=1, depth=64),
+  DepthSepConv(kernel=[3, 3], stride=2, depth=64),
+  DepthSepConv(kernel=[3, 3], stride=1, depth=64),
+  DepthSepConv(kernel=[3, 3], stride=2, depth=64),
+  DepthSepConv(kernel=[3, 3], stride=1, depth=64),
+  DepthSepConv(kernel=[3, 3], stride=1, depth=64),
+  DepthSepConv(kernel=[3, 3], stride=1, depth=128),
+  DepthSepConv(kernel=[3, 3], stride=1, depth=128),
+  DepthSepConv(kernel=[3, 3], stride=1, depth=128),
+  DepthSepConv(kernel=[3, 3], stride=2, depth=128),
+  DepthSepConv(kernel=[3, 3], stride=1, depth=128),
+  DepthSepConv(kernel=[3, 3], stride=1, depth=128),
+  DepthSepConv(kernel=[3, 3], stride=1, depth=128)
 ]
 
 
@@ -266,18 +268,34 @@ def mobilenet_v1_base(inputs,
   raise ValueError('Unknown final endpoint %s' % final_endpoint)
 
 
+def create_hparams(hparam_string=None):
+  """Create model hyperparameters. Parse nondefault from given string."""
+  hparams = tf.contrib.training.HParams(
+    # The name of the architecture to use.
+    final_endpoint='Conv2d_13_pointwise',
+    min_depth=8,
+    depth_multiplier=1.0,
+    output_stride=None,
+  )
+
+  if hparam_string:
+    tf.logging.info('Parsing command line hparams: %s', hparam_string)
+    hparams.parse(hparam_string)
+
+  return hparams
+
+
 def mobilenet_v1(inputs,
-                 num_classes=1000,
+                 num_classes=12,
                  dropout_keep_prob=0.999,
                  is_training=True,
-                 min_depth=8,
-                 depth_multiplier=1.0,
                  conv_defs=None,
                  prediction_fn=tf.contrib.layers.softmax,
                  spatial_squeeze=True,
                  reuse=None,
                  scope='MobilenetV1',
-                 global_pool=False):
+                 hparam_string=None,
+                 global_pool=True):
   """Mobilenet v1 model for classification.
 
   Args:
@@ -287,13 +305,6 @@ def mobilenet_v1(inputs,
       are returned instead.
     dropout_keep_prob: the percentage of activation values that are retained.
     is_training: whether is training or not.
-    min_depth: Minimum depth value (number of channels) for all convolution ops.
-      Enforced when depth_multiplier < 1, and not an active constraint when
-      depth_multiplier >= 1.
-    depth_multiplier: Float multiplier for the depth (number of channels)
-      for all convolution ops. The value must be greater than zero. Typical
-      usage will be to set this value in (0, 1) to reduce the number of
-      parameters or computation cost of the model.
     conv_defs: A list of ConvDef namedtuples specifying the net architecture.
     prediction_fn: a function to get predictions out of logits.
     spatial_squeeze: if True, logits is of shape is [B, C], if false logits is
@@ -324,14 +335,16 @@ def mobilenet_v1(inputs,
   with tf.variable_scope(scope, 'MobilenetV1', [inputs], reuse=reuse) as scope:
     with slim.arg_scope([slim.batch_norm, slim.dropout],
                         is_training=is_training):
+      hparams = create_hparams(hparam_string=hparam_string)
       net, end_points = mobilenet_v1_base(inputs, scope=scope,
-                                          min_depth=min_depth,
-                                          depth_multiplier=depth_multiplier,
-                                          conv_defs=conv_defs)
+                                          conv_defs=conv_defs,
+                                          **hparams.values())
       with tf.variable_scope('Logits'):
         if global_pool:
           # Global average pooling.
-          net = tf.reduce_mean(net, [1, 2], keep_dims=True, name='global_pool')
+          net_avg = tf.reduce_mean(net, [1, 2], keep_dims=True, name='global_avg_pool')
+          net_max = tf.reduce_max(net, [1, 2], keep_dims=True, name='global_max_pool')
+          net = tf.concat([net_avg, net_max], -1)
           end_points['global_pool'] = net
         else:
           # Pooling with a fixed kernel size.
@@ -351,6 +364,7 @@ def mobilenet_v1(inputs,
       if prediction_fn:
         end_points['Predictions'] = prediction_fn(logits, scope='Predictions')
   return logits, end_points
+
 
 mobilenet_v1.default_image_size = 224
 
@@ -404,11 +418,11 @@ def mobilenet_v1_arg_scope(is_training=True,
     An `arg_scope` to use for the mobilenet v1 model.
   """
   batch_norm_params = {
-      'is_training': is_training,
-      'center': True,
-      'scale': True,
-      'decay': 0.9997,
-      'epsilon': 0.001,
+    'is_training': is_training,
+    'center': True,
+    'scale': True,
+    'decay': 0.9997,
+    'epsilon': 0.001,
   }
 
   # Set weight_decay for weights in Conv and DepthSepConv layers.
