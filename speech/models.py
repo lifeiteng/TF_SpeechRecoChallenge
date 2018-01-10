@@ -21,11 +21,11 @@ from __future__ import print_function
 
 import math
 
-from speech import model_inception as inception_model
-from speech import model_resnet as resnet_model
-from speech import model_mobilenet as mobilenet_model
-
 import tensorflow as tf
+
+from speech import model_inception_v3 as inception_model
+from speech import model_mobilenet as mobilenet_model
+from speech import model_resnet as resnet_model
 
 
 def prepare_model_settings(label_count, sample_rate, clip_duration_ms,
@@ -113,16 +113,16 @@ def create_model(fingerprint_input, model_settings, model_architecture,
                                          is_training, runtime_settings)
   elif model_architecture.startswith('resnet'):
     return create_resnet_model(fingerprint_input, model_settings,
-                                  is_training, hparam_string, name=model_architecture)
+                               is_training, hparam_string, name=model_architecture)
   elif model_architecture == 'densenet':
     return create_resnet_model(fingerprint_input, model_settings,
-                                  is_training, hparam_string, densenet=True)
+                               is_training, hparam_string, densenet=True)
   elif model_architecture == 'lenet':
     return create_lenet_model(fingerprint_input, model_settings,
                               is_training)
   elif model_architecture == 'inception':
     return create_inception_model(fingerprint_input, model_settings,
-                                  is_training)
+                                  is_training, hparam_string)
   elif model_architecture == 'mobilenet':
     return create_mobilenet_model(fingerprint_input, model_settings,
                                   is_training, hparam_string)
@@ -187,9 +187,9 @@ def create_lenet_model(fingerprint_input, model_settings, is_training):
                                bias_initializer=self.vector_init, name="conv2_1")
 
       conv2_2 = tf.layers.conv2d(conv2, ch2, kernel_size=(3, 3), padding="SAME",
-                               activation=tf.nn.relu,
-                               kernel_initializer=self.matrix_init,
-                               bias_initializer=self.vector_init, name="conv2_2")
+                                 activation=tf.nn.relu,
+                                 kernel_initializer=self.matrix_init,
+                                 bias_initializer=self.vector_init, name="conv2_2")
       pool2 = tf.layers.max_pooling2d(conv2_2, pool_size=[2, 2], strides=[1, 2],
                                       padding='SAME', name="pool2")
 
@@ -243,13 +243,13 @@ def create_resnet_model(fingerprint_input, model_settings, is_training,
   label_count = model_settings['label_count']
   if densenet:
     network = resnet_model.densenet_generator(label_count, dropout_prob, hparam_string=hparam_string,
-                                            data_format='channels_last')
-  elif name =='resnet':
+                                              data_format='channels_last')
+  elif name == 'resnet':
     network = resnet_model.resnet_generator(label_count, dropout_prob, hparam_string=hparam_string,
                                             data_format='channels_last')
-  elif name =='resnetft':
+  elif name == 'resnetft':
     network = resnet_model.resnetft_generator(label_count, dropout_prob, hparam_string=hparam_string,
-                                            data_format='channels_last')
+                                              data_format='channels_last')
   else:
     raise ValueError("not known architecture: {}".format(name))
 
@@ -284,7 +284,8 @@ def create_mobilenet_model(fingerprint_input, model_settings, is_training, hpara
 
   label_count = model_settings['label_count']
   logits, _ = mobilenet_model.mobilenet_v1(fingerprint_4d, dropout_keep_prob=dropout_prob,
-    num_classes=label_count, is_training=is_training, hparam_string=hparam_string)
+                                           num_classes=label_count, is_training=is_training,
+                                           hparam_string=hparam_string)
 
   if is_training:
     return logits, dropout_prob
@@ -292,7 +293,7 @@ def create_mobilenet_model(fingerprint_input, model_settings, is_training, hpara
     return logits
 
 
-def create_inception_model(fingerprint_input, model_settings, is_training):
+def create_inception_model(fingerprint_input, model_settings, is_training, hparam_string):
   """Builds a inception model.
 
   Args:
@@ -306,13 +307,18 @@ def create_inception_model(fingerprint_input, model_settings, is_training):
   """
   if is_training:
     dropout_prob = tf.placeholder(tf.float32, name='dropout_prob')
+  else:
+    dropout_prob = 1
+
   input_frequency_size = model_settings['dct_coefficient_count']
   input_time_size = model_settings['spectrogram_length']
   fingerprint_4d = tf.reshape(fingerprint_input,
                               [-1, input_time_size, input_frequency_size, 1])
 
   label_count = model_settings['label_count']
-  logits = inception_model.inference(fingerprint_4d, label_count, is_training=is_training)
+  logits, _ = inception_model.inception_v3(fingerprint_4d, dropout_keep_prob=dropout_prob,
+                                        num_classes=label_count, is_training=is_training,
+                                        hparam_string=hparam_string)
 
   if is_training:
     return logits, dropout_prob
