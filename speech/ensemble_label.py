@@ -117,7 +117,7 @@ colors = color(True)
 
 def ensemble_labels(all_scores):
   wanted_words = [w.replace('_', '') for w in input_data.prepare_words_list(FLAGS.wanted_words.split(','))]
-
+  UNKNOWN_WORD_LABEL = input_data.UNKNOWN_WORD_LABEL.replace('_', '')
   final_label = {}
   num_labels = [len(label) for label in all_scores]
   if len(num_labels) > 1:
@@ -148,7 +148,8 @@ def ensemble_labels(all_scores):
 
     final_label[k] = labels_list[index]
     if labels_list[index] not in wanted_words:
-      final_label[k] = input_data.UNKNOWN_WORD_LABEL.replace('_', '')
+      print("WARN: {} -> {}".format(labels_list[index], UNKNOWN_WORD_LABEL))
+      final_label[k] = UNKNOWN_WORD_LABEL
 
   return final_label
 
