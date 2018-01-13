@@ -31,9 +31,9 @@ import csv
 import os
 import time
 from collections import defaultdict
-from collections import Counter
-
 from operator import itemgetter
+
+from speech import input_data
 
 FLAGS = None
 
@@ -115,7 +115,9 @@ def load_score_csv(csv_file):
 colors = color(True)
 
 
-def ensemble_labels(all_scores, mode):
+def ensemble_labels(all_scores):
+  wanted_words = [w.replace('_', '') for w in input_data.prepare_words_list(FLAGS.wanted_words.split(','))]
+
   final_label = {}
   num_labels = [len(label) for label in all_scores]
   if len(num_labels) > 1:
@@ -134,41 +136,19 @@ def ensemble_labels(all_scores, mode):
         scores.append(s)
 
     num_scores = len(scores)
-    if mode == 'argmax':
-      score = [sum(i) / num_scores for i in zip(*scores)]
-      index, value = max(enumerate(score), key=itemgetter(1))
+    score = [sum([pow(s, FLAGS.factor) for s in ss]) / num_scores for ss in zip(*scores)]
 
-      def _relabel_to_unknown():
-        if value < 0.84 and index != unknown_index and index != silence_index:
-          if index != unknown_index and score[unknown_index] >= 0.08 and value < 0.9:
-            return True
-        return False
+    index, value = max(enumerate(score), key=itemgetter(1))
+    if FLAGS.debug and value < 0.8:  # (value >= 0.8 and value < 0.9):
+      os.system("play -V0 /Users/feiteng/Geek/Kaggle/TF_Speech/test/audio/{}".format(k))
+      print(
+        "INFO: {} Label: {} score: {}".format(' '.join(["%8s: %.4f\n" % (k, v) for k, v in zip(labels_list, score)]),
+                                              colors.c_string('R', labels_list[index]), value))
+      time.sleep(4)
 
-      if FLAGS.debug and value < 0.9 and index != unknown_index and index != silence_index:
-        os.system("play -V0 /Users/feiteng/Geek/Kaggle/TF_Speech/test/audio/{}".format(k))
-        print(
-          "INFO: {} Label: {} score: {}".format(' '.join(["%8s: %.4f\n" % (k, v) for k, v in zip(labels_list, score)]),
-                                                colors.c_string('R', labels_list[index]), value))
-        if _relabel_to_unknown():
-          # final_label[k] = "unknown"
-          print("INFO: re-label from {:8s} -> {:8s}".format(colors.c_string('R', labels_list[index]),
-                                                            colors.c_string('G', 'unknown')))
-        time.sleep(4)
-      final_label[k] = labels_list[index]
-      if FLAGS.tune and _relabel_to_unknown():
-        final_label[k] = "unknown"
-    elif mode == 'voting':
-      score_avg = [sum(i) / num_scores for i in zip(*scores)]
-      indexes = [max(enumerate(score), key=itemgetter(1))[0] for score in scores]
-      founds = Counter(indexes).most_common(2)
-      index = founds[0][0]
-      if len(founds) == 2:
-        if founds[0][1] == founds[1][1]:
-          if score_avg[founds[1][0]] > score_avg[founds[0][0]]:
-            index = founds[1][0]
-      final_label[k] = labels_list[index]
-    else:
-      raise NotImplementedError
+    final_label[k] = labels_list[index]
+    if labels_list[index] not in wanted_words:
+      final_label[k] = input_data.UNKNOWN_WORD_LABEL.replace('_', '')
 
   return final_label
 
@@ -176,7 +156,7 @@ def ensemble_labels(all_scores, mode):
 def main(argv):
   """Entry point for script, converts flags to arguments."""
   scores = [load_score_csv(f) for f in argv[:-1]]
-  label = ensemble_labels(scores, FLAGS.mode)
+  label = ensemble_labels(scores)
   with open(argv[-1], 'wb') as f:
     f.write("fname,label\n")
     for (k, v) in label.items():
@@ -188,10 +168,11 @@ if __name__ == '__main__':
   parser.add_argument(
     '--labels', type=str, default='labels.txt', help='Path to file containing labels.')
   parser.add_argument(
-    '--mode',
+    '--wanted_words',
     type=str,
-    default='argmax',
-    help='Ensemble mode.')
+    default='yes,no,up,down,left,right,on,off,stop,go',
+    help='Words to use (others will be added to an unknown label)', )
+
   parser.add_argument(
     '--debug',
     action='store_true',
@@ -202,6 +183,11 @@ if __name__ == '__main__':
     action='store_true',
     default=False,
     help='Tune label')
+  parser.add_argument(
+    '--factor',
+    type=float,
+    default=0.5,
+    help='Ensemble factor value.')
 
   FLAGS, unparsed = parser.parse_known_args()
   if not FLAGS.labels:
