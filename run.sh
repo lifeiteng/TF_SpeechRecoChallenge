@@ -17,6 +17,7 @@ data_dir=~/Data/TF_Speech/speech_commands
 test_dir="/home/ftli/Data/TF_Speech/test"
 use_gpu=true
 train_opts=""
+wanted_words="yes,no,up,down,left,right,on,off,stop,go"
 
 skip_infer=false
 
@@ -45,6 +46,7 @@ if [ "$mode" = 'train' ];then
     --optimizer "$opt" --hparams "$hparams" \
     --summaries_dir $model_dir/summaries \
     --model_architecture "$model" \
+    --wanted_words "$wanted_words" \
     --batch_size $batch_size --feature_scaling "$feature_scaling" $train_opts
   if $skip_infer;then
     echo "$0: skip infer."
@@ -72,6 +74,7 @@ python speech/infer.py \
   --train_dir $model_dir --hparams "$hparams" \
   --model_architecture "$model" \
   --batch_size 48 --output_csv $output_csv \
+  --wanted_words "$wanted_words" \
   --feature_scaling "$feature_scaling" $train_opts </dev/null || exit 1
 
 cp $output_csv submissions || exit 1

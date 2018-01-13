@@ -38,6 +38,8 @@ from speech import input_data
 FLAGS = None
 
 
+label_words = None
+
 class color:
   d = {}
   RESET_SEQ = ""
@@ -80,10 +82,10 @@ def get_basename(wav_name):
 
 
 def load_score_csv(csv_file):
+  global label_words
   """Loads the model and labels, and runs the inference to print predictions."""
-  labels_list = load_labels(FLAGS.labels)
-  num_labels = len(labels_list)
-  label2idx = {k.replace('_', ''): v for k, v in zip(labels_list, range(num_labels))}
+  num_labels = 0
+  label2idx = None
 
   with open(csv_file, 'rb') as csvfile:
     reader = csv.reader(csvfile)
@@ -93,11 +95,15 @@ def load_score_csv(csv_file):
     for row in reader:
       if skip_header:
         print(row)
-        if len(row) == num_labels + 1:
-          has_score = True
-          assert row[1:] == labels_list
+        if not label_words:
+          label_words = row[1:]
+          label2idx = {k.replace('_', ''): v for k, v in zip(label_words, range(num_labels))}
+        else:
+          assert label_words == row[1:]
 
+        num_labels = len(row[1:])
         skip_header = False
+        has_score = True
         continue
       if row[0] in label:
         print("repeated wav: {}".format(row[0]))
@@ -116,6 +122,7 @@ colors = color(True)
 
 
 def ensemble_labels(all_scores):
+  global label_words
   wanted_words = [w.replace('_', '') for w in input_data.prepare_words_list(FLAGS.wanted_words.split(','))]
   UNKNOWN_WORD_LABEL = input_data.UNKNOWN_WORD_LABEL.replace('_', '')
   final_label = {}
@@ -123,7 +130,7 @@ def ensemble_labels(all_scores):
   if len(num_labels) > 1:
     assert any(num_labels[i] == num_labels[0] for i in range(1, len(num_labels)))
 
-  labels_list = [label.replace('_', '') for label in load_labels(FLAGS.labels)]
+  labels_list = [label.replace('_', '') for label in label_words]
   label2index = {v: k for k, v in enumerate(labels_list)}
 
   unknown_index = label2index["unknown"]
@@ -167,13 +174,10 @@ def main(argv):
 if __name__ == '__main__':
   parser = argparse.ArgumentParser()
   parser.add_argument(
-    '--labels', type=str, default='labels.txt', help='Path to file containing labels.')
-  parser.add_argument(
     '--wanted_words',
     type=str,
     default='yes,no,up,down,left,right,on,off,stop,go',
-    help='Words to use (others will be added to an unknown label)', )
-
+    help='Words to use (others will be added to an unknown label)')
   parser.add_argument(
     '--debug',
     action='store_true',
@@ -191,9 +195,8 @@ if __name__ == '__main__':
     help='Ensemble factor value.')
 
   FLAGS, unparsed = parser.parse_known_args()
-  if not FLAGS.labels:
-    raise ValueError("must set --labels.")
   if len(unparsed) < 2:
+    parser.print_usage()
     raise ValueError("at least two inputs.")
 
   main(unparsed)
