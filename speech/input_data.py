@@ -87,6 +87,10 @@ def which_set(filename, validation_percentage, testing_percentage):
   # deciding which set to put a wav in, so the data set creator has a way of
   # grouping wavs that are close variations of each other.
   hash_name = re.sub(r'_nohash_.*$', '', base_name)
+  if len(hash_name) > 20:  # 0a1cf9f6b5b514787f0e09549d68fe8748d79f2b
+
+    return 'training'
+
   # This looks a bit magical, but we need to decide whether this file should
   # go into the training, testing, or validation sets, and we want to keep
   # existing files in the same set even if more files are subsequently

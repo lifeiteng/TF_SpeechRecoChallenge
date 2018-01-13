@@ -28,7 +28,9 @@ from __future__ import print_function
 
 import argparse
 import csv
+import hashlib
 import os
+import shutil
 import time
 from collections import defaultdict
 from operator import itemgetter
@@ -37,8 +39,8 @@ from speech import input_data
 
 FLAGS = None
 
-
 label_words = None
+
 
 class color:
   d = {}
@@ -136,7 +138,19 @@ def ensemble_labels(all_scores):
   unknown_index = label2index["unknown"]
   silence_index = label2index["silence"]
 
+  train_dir = FLAGS.output_data_dir if FLAGS.output_data_dir else None
+  if train_dir:
+    if not os.path.isdir(train_dir):
+      os.makedirs(train_dir)
+    for word in labels_list:
+      if not os.path.isdir(os.path.join(train_dir, word)):
+        os.makedirs(os.path.join(train_dir, word))
+
+  mac_data_dir = '/Users/feiteng/Geek/Kaggle/TF_Speech/test/audio/'
+  num_utts = 0
+
   for k in all_scores[0]:
+    num_utts += 1
     scores = []
     for score in all_scores:
       for s in score[k]:
@@ -146,14 +160,21 @@ def ensemble_labels(all_scores):
     score = [sum([pow(s, FLAGS.factor) for s in ss]) / num_scores for ss in zip(*scores)]
 
     index, value = max(enumerate(score), key=itemgetter(1))
+
     if FLAGS.debug and value < 0.8:  # (value >= 0.8 and value < 0.9):
-      os.system("play -V0 /Users/feiteng/Geek/Kaggle/TF_Speech/test/audio/{}".format(k))
+      os.system("play -V0 {}{}".format(mac_data_dir, k))
       print(
         "INFO: {} Label: {} score: {}".format(' '.join(["%8s: %.4f\n" % (k, v) for k, v in zip(labels_list, score)]),
                                               colors.c_string('R', labels_list[index]), value))
       time.sleep(4)
 
     final_label[k] = labels_list[index]
+    if train_dir and value > FLAGS.threshold and labels_list[index] != UNKNOWN_WORD_LABEL:
+      new_name = hashlib.sha1(k).hexdigest() + '_nohash_0.wav'
+      shutil.copy(os.path.join(mac_data_dir, k), os.path.join(train_dir, labels_list[index], new_name))
+
+    if num_utts % 10000 == 0:
+      print("Processed {} utters".format(num_utts))
     if labels_list[index] not in wanted_words:
       print("WARN: {} -> {}".format(labels_list[index], UNKNOWN_WORD_LABEL))
       final_label[k] = UNKNOWN_WORD_LABEL
@@ -193,6 +214,16 @@ if __name__ == '__main__':
     type=float,
     default=0.5,
     help='Ensemble factor value.')
+  parser.add_argument(
+    '--output_data_dir',
+    type=str,
+    default='',
+    help='Select training data from test dataset.')
+  parser.add_argument(
+    '--threshold',
+    type=float,
+    default=0.9,
+    help='Threshold for select training data from test dataset')
 
   FLAGS, unparsed = parser.parse_known_args()
   if len(unparsed) < 2:
