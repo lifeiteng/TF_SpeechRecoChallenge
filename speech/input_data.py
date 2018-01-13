@@ -164,6 +164,7 @@ class AudioProcessor(object):
     self.prepare_processing_graph(model_settings)
 
     self.feature_scaling = feature_scaling
+    self.unknown_index_training = None
 
   def maybe_download_and_extract_dataset(self, data_url, dest_directory):
     """Download and extract data set tar file.
@@ -256,7 +257,7 @@ class AudioProcessor(object):
       if word in wanted_words_index:
         if set_index in ['validation', 'testing'] and os.path.basename(wav_path).count('_') > 2:
           # skip augmented data
-          pass
+          print("SKIP data: {}".format(wav_path))
         else:
           self.data_index[set_index].append({'label': word, 'file': wav_path})
           if set_index != 'training':  # use all data for training
@@ -270,6 +271,9 @@ class AudioProcessor(object):
         raise Exception('Expected to find ' + wanted_word +
                         ' in labels but only found ' +
                         ', '.join(all_words.keys()))
+
+    self.unknown_index_training = unknown_index['training']
+
     # We need an arbitrary file to load as the input for the silence samples.
     # It's multiplied by zero later, so the content doesn't matter.
     silence_wav_path = self.data_index['training'][0]['file']
@@ -285,6 +289,7 @@ class AudioProcessor(object):
       random.shuffle(unknown_index[set_index])
       unknown_size = int(math.ceil(set_size * unknown_percentage / 100))
       self.data_index[set_index].extend(unknown_index[set_index][:unknown_size])
+
     # Make sure the ordering is random.
     for set_index in ['validation', 'testing', 'training']:
       random.shuffle(self.data_index[set_index])
@@ -384,36 +389,28 @@ class AudioProcessor(object):
     background_add = tf.add(background_mul, sliced_foreground)
     background_clamp = tf.clip_by_value(background_add, -1.0, 1.0)
     self.warp_factor_placeholder_ = tf.placeholder(tf.float64, [])
-    if model_settings['feature_type'] == 'mfcc':
-      # Run the spectrogram and MFCC ops to get a 2D 'fingerprint' of the audio.
-      spectrogram = contrib_audio.audio_spectrogram(
-        background_clamp,
-        window_size=model_settings['window_size_samples'],
-        stride=model_settings['window_stride_samples'],
-        magnitude_squared=True)
-      self.mfcc_ = contrib_audio.mfcc(
-        spectrogram,
-        wav_decoder.sample_rate,
-        upper_frequency_limit=float(model_settings['sample_rate'] / 2 - 200),
-        dct_coefficient_count=model_settings['dct_coefficient_count'],
-        filterbank_channel_count=model_settings['dct_coefficient_count'])
-    elif model_settings['feature_type'] == 'fbank':
-      # Fbank feature
-      mel_bias_ = linear_to_mel_weight_matrix(num_mel_bins=model_settings['dct_coefficient_count'],
-                                              num_spectrogram_bins=int(2048 / 2 + 1),
-                                              sample_rate=model_settings['sample_rate'],
-                                              lower_edge_hertz=125,
-                                              upper_edge_hertz=float(
-                                                model_settings['sample_rate'] / 2 - 200),
-                                              warp_factor=self.warp_factor_placeholder_)
-      spectrogram = tf.abs(tf.contrib.signal.stft(tf.transpose(background_clamp),
-                                                  model_settings['window_size_samples'],
-                                                  model_settings['window_stride_samples'],
-                                                  fft_length=2048,
-                                                  window_fn=tf.contrib.signal.hann_window,
-                                                  pad_end=False))
-      S = tf.matmul(tf.reshape(tf.pow(spectrogram, 2), [-1, 1025]), mel_bias_)
-      self.mfcc_ = tf.log(tf.maximum(S, 1e-4))
+    # Fbank feature
+    mel_bias_ = linear_to_mel_weight_matrix(num_mel_bins=model_settings['dct_coefficient_count'],
+                                            num_spectrogram_bins=int(2048 / 2 + 1),
+                                            sample_rate=model_settings['sample_rate'],
+                                            lower_edge_hertz=125,
+                                            upper_edge_hertz=float(
+                                              model_settings['sample_rate'] / 2 - 200),
+                                            warp_factor=self.warp_factor_placeholder_)
+    spectrogram = tf.abs(tf.contrib.signal.stft(tf.transpose(background_clamp),
+                                                model_settings['window_size_samples'],
+                                                model_settings['window_stride_samples'],
+                                                fft_length=2048,
+                                                window_fn=tf.contrib.signal.hann_window,
+                                                pad_end=False))
+    S = tf.matmul(tf.reshape(tf.pow(spectrogram, 2), [-1, 1025]), mel_bias_)
+    log_mel_spectrograms = tf.log(tf.maximum(S, 1e-7))
+
+    if model_settings['feature_type'] == 'fbank':
+      self.mfcc_ = log_mel_spectrograms
+    elif model_settings['feature_type'] == 'mfcc':
+      # Compute MFCCs from log_mel_spectrograms.
+      self.mfcc_ = tf.contrib.signal.mfccs_from_log_mel_spectrograms(log_mel_spectrograms)
     else:
       raise ValueError("not supported feature_type: {}".format(model_settings['feature_type']))
 
@@ -479,6 +476,9 @@ class AudioProcessor(object):
         # training
         sample_index = i % set_size
       sample = candidates[sample_index]
+      if (mode == 'training') and (sample['label'] == UNKNOWN_WORD_LABEL):
+        sample = random.choice(self.unknown_index_training)
+
       # If we're time shifting, set up the offset for this sample.
       if time_shift > 0:
         time_shift_amount = np.random.randint(-time_shift, time_shift)
@@ -582,14 +582,14 @@ class AudioProcessor(object):
   def apply_feature_scaling(data, feature_scaling, dct_coefficient_count):
     if feature_scaling.lower() == 'cmvn':
       bs, fs = data.shape
-      data = np.reshape(data, [bs, dct_coefficient_count, fs / dct_coefficient_count])
+      data = np.reshape(data, [bs, fs / dct_coefficient_count, dct_coefficient_count])
       mean = np.expand_dims(np.mean(data, axis=1), axis=1)
       std = np.expand_dims(np.maximum(np.std(data, axis=1), 1e-6), axis=1)
       return np.reshape((data - mean) / std, [bs, -1])
     elif feature_scaling.lower() == 'cmn':
       bs, fs = data.shape
-      data = np.reshape(data, [bs, dct_coefficient_count, fs / dct_coefficient_count])
-      mean = np.expand_dims(np.mean(data, axis=-1), axis=1)
+      data = np.reshape(data, [bs, fs / dct_coefficient_count, dct_coefficient_count])
+      mean = np.expand_dims(np.mean(data, axis=1), axis=1)
       return np.reshape((data - mean), [bs, -1])
     elif feature_scaling != '':
       raise ValueError("Not supported feature_scaling value: {}".format(feature_scaling))

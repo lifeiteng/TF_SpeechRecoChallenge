@@ -93,37 +93,26 @@ class AudioProcessor(object):
                                  self.time_shift_offset_placeholder_,
                                  [desired_samples, -1])
 
-    if model_settings['feature_type'] == 'mfcc':
-      # Run the spectrogram and MFCC ops to get a 2D 'fingerprint' of the audio.
-      spectrogram = contrib_audio.audio_spectrogram(
-        sliced_foreground,
-        window_size=model_settings['window_size_samples'],
-        stride=model_settings['window_stride_samples'],
-        magnitude_squared=True)
-      self.mfcc_ = contrib_audio.mfcc(
-        spectrogram,
-        wav_decoder.sample_rate,
-        upper_frequency_limit=float(model_settings['sample_rate'] / 2 - 200),
-        dct_coefficient_count=model_settings['dct_coefficient_count'],
-        filterbank_channel_count=model_settings['dct_coefficient_count'])
-    elif model_settings['feature_type'] == 'fbank':
-      # Fbank feature
-      mel_bias_ = tf.contrib.signal.linear_to_mel_weight_matrix(num_mel_bins=model_settings['dct_coefficient_count'],
-                                                                num_spectrogram_bins=int(2048 / 2 + 1),
-                                                                sample_rate=model_settings['sample_rate'],
-                                                                lower_edge_hertz=125,
-                                                                upper_edge_hertz=float(
-                                                                  model_settings['sample_rate'] / 2 - 200))
+    mel_bias_ = tf.contrib.signal.linear_to_mel_weight_matrix(num_mel_bins=model_settings['dct_coefficient_count'],
+                                                              num_spectrogram_bins=int(2048 / 2 + 1),
+                                                              sample_rate=model_settings['sample_rate'],
+                                                              lower_edge_hertz=125,
+                                                              upper_edge_hertz=float(
+                                                                model_settings['sample_rate'] / 2 - 200))
+    spectrogram = tf.abs(tf.contrib.signal.stft(tf.transpose(sliced_foreground),
+                                                model_settings['window_size_samples'],
+                                                model_settings['window_stride_samples'],
+                                                fft_length=2048,
+                                                window_fn=tf.contrib.signal.hann_window,
+                                                pad_end=False))
+    S = tf.matmul(tf.reshape(tf.pow(spectrogram, 2), [-1, 1025]), mel_bias_)
+    log_mel_spectrograms = tf.log(tf.maximum(S, 1e-7))
 
-      spectrogram = tf.abs(tf.contrib.signal.stft(tf.transpose(sliced_foreground),
-                                                  model_settings['window_size_samples'],
-                                                  model_settings['window_stride_samples'],
-                                                  fft_length=2048,
-                                                  window_fn=tf.contrib.signal.hann_window,
-                                                  pad_end=False))
-
-      S = tf.matmul(tf.reshape(tf.pow(spectrogram, 2), [-1, 1025]), mel_bias_)
-      self.mfcc_ = tf.log(tf.maximum(S, 1e-4))
+    if model_settings['feature_type'] == 'fbank':
+      self.mfcc_ = log_mel_spectrograms
+    elif model_settings['feature_type'] == 'mfcc':
+      # Compute MFCCs from log_mel_spectrograms.
+      self.mfcc_ = tf.contrib.signal.mfccs_from_log_mel_spectrograms(log_mel_spectrograms)
     else:
       raise ValueError("not supported feature_type: {}".format(model_settings['feature_type']))
 
@@ -277,11 +266,6 @@ if __name__ == '__main__':
     type=str,
     default='/tmp/speech_commands_train',
     help='Directory to write event logs and checkpoint.')
-  parser.add_argument(
-    '--resnet_size',
-    type=int,
-    default=32,
-    help='Residual model layers.')
   parser.add_argument(
     '--model_architecture',
     type=str,
