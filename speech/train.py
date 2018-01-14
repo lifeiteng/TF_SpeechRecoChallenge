@@ -207,6 +207,13 @@ def main(_):
     with tf.control_dependencies(tf.get_collection(tf.GraphKeys.UPDATE_OPS)):
       train_step = optimizer.apply_gradients(grad_vars)
 
+      if abs(FLAGS.polyak_decay - 1) < 0.1:
+        tf.logging.info("Apply Polyak averaging {}".format(FLAGS.polyak_decay))
+        ema = tf.train.ExponentialMovingAverage(decay=FLAGS.polyak_decay)
+        with tf.control_dependencies([train_step]):
+          ma_op = ema.apply(tf.trainable_variables())
+          train_step = tf.group(train_step, ma_op)
+
   predicted_indices = tf.argmax(logits, 1)
   expected_indices = tf.argmax(ground_truth_input, 1)
   correct_prediction = tf.equal(predicted_indices, expected_indices)
@@ -456,7 +463,7 @@ if __name__ == '__main__':
   parser.add_argument(
     '--eval_step_interval',
     type=int,
-    default=400,
+    default=1000,
     help='How often to evaluate the training results.')
   parser.add_argument(
     '--learning_rate',
@@ -528,6 +535,11 @@ if __name__ == '__main__':
     type=str,
     default='mfcc',  #
     help='Feature type (e.g. mfcc or fbank)')
+  parser.add_argument(
+    '--polyak_decay',
+    type=float,
+    default=0.0,  #
+    help='Exponential Moving Average decay')
 
   FLAGS, unparsed = parser.parse_known_args()
   tf.app.run(main=main, argv=[sys.argv[0]] + unparsed)
