@@ -329,11 +329,13 @@ def resnet_generator(num_classes, dropout_prob=1.0,
       inputs_avg = tf.reduce_mean(inputs, [1, 2], name='GlobalAveragePooling')
       inputs = tf.concat([inputs_max, inputs_avg], axis=1)
       inputs = tf.identity(inputs, 'final_pool')
+
+    inputs = tf.layers.dropout(inputs, rate=dropout_prob, training=is_training)
     if hparams.bottleneck_sizes[0] > 0:
       for i, size in enumerate(hparams.bottleneck_sizes):
         inputs = tf.layers.dense(inputs=inputs, units=size, name="final_bn{}".format(i))
+        inputs = tf.layers.dropout(inputs, rate=dropout_prob, training=is_training)
 
-    inputs = tf.layers.dropout(inputs, rate=dropout_prob, training=is_training)
     inputs = tf.layers.dense(inputs=inputs, units=num_classes)
     inputs = tf.identity(inputs, 'final_logits')
     return inputs
