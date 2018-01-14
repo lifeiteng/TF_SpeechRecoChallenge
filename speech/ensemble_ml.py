@@ -28,9 +28,12 @@ from __future__ import print_function
 
 import argparse
 import csv
+import os
 import random
+import time
 from collections import defaultdict
 from operator import itemgetter
+import logging
 
 from mlens.ensemble import BlendEnsemble
 
@@ -38,6 +41,21 @@ from speech import infer
 from speech import input_data
 
 FLAGS = None
+
+
+def get_logger(name, time=True):
+  logger = logging.getLogger(name)
+  logger.setLevel(logging.INFO)
+  handler = logging.StreamHandler()
+  handler.setLevel(logging.INFO)
+  formatter = logging.Formatter("{}[%(filename)s:%(lineno)s - "
+                                "%(funcName)s - %(levelname)s ] %(message)s".format('%(asctime)s ' if time else ''))
+  handler.setFormatter(formatter)
+  logger.addHandler(handler)
+  return logger
+
+
+logger = get_logger(__name__)
 
 
 class color:
@@ -104,7 +122,7 @@ def load_score_csv(csv_file):
         continue
       if row[0] in label:
         print("repeated wav: {}".format(row[0]))
-      class_name, basename = get_basename(row[0])
+      class_name, _ = get_basename(row[0])
       if has_score:
         if head_words != wanted_words:
           # merge other words's score to unknown_score
@@ -114,9 +132,9 @@ def load_score_csv(csv_file):
               re_scores[word2idx[input_data.UNKNOWN_WORD_LABEL]] += float(score)
             else:
               re_scores[word2idx[head_words[i]]] += float(score)
-          label[basename] = {'scores': re_scores, 'class': class_name}
+          label[row[0]] = {'scores': re_scores, 'class': class_name}
         else:
-          label[basename] = {'scores': [float(v) for v in row[1:]], 'class': class_name}
+          label[row[0]] = {'scores': [float(v) for v in row[1:]], 'class': class_name}
       else:
         assert False
         # # print(row)
@@ -128,15 +146,13 @@ def load_score_csv(csv_file):
 
 colors = color(True)
 
-
-def get_estimators_list(proba=True):
-  return [RandomForestClassifier(random_state=0), SVC(probability=proba)]
-
-
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.svm import SVC
 from sklearn.metrics import accuracy_score
+
+
+def get_estimators_list(proba=True):
+  return [RandomForestClassifier(random_state=0), LogisticRegression()]
 
 
 def build_ensemble(proba=True, **kwargs):
@@ -161,6 +177,7 @@ def ensemble_labels(data_train, data_test):
 
   X = []
   y = []
+  y_value = []
 
   X_train = []
   y_train = []
@@ -183,13 +200,15 @@ def ensemble_labels(data_train, data_test):
 
     X.append(score)
     y.append(word2idx[final_label[k]])
+    y_value.append(value)
 
-    if value > 0.95 and (final_label[k] == 'silence'):
+    if final_label[k] == 'silence':
       X_train.append(score)
       y_train.append(word2idx[final_label[k]])
 
   print("INFO: got {} silence data for train.".format(len(y_train)))
 
+  print("INFO: data_train {}".format(len(data_train)))
   for k in data_train:
     X_train.append(data_train[k]["scores"])
     class_name = data_train[k]["class"]
@@ -198,10 +217,14 @@ def ensemble_labels(data_train, data_test):
     else:
       y_train.append(word2idx[UNKNOWN_WORD_LABEL])
 
+  # balance samples
+  for v in set(y_train):
+    print("INFO: label: {:8s} count: {}".format(wanted_words[v], y_train.count(v)))
+
+  mini_count = min([y_train.count(v) for v in set(y_train)])
+
   X_y_train = list(zip(X_train, y_train))
-
   random.shuffle(X_y_train)
-
   X_train, y_train = zip(*X_y_train)
 
   ensemble = build_ensemble(proba=True)
@@ -209,7 +232,40 @@ def ensemble_labels(data_train, data_test):
   print("Accuracy Train:\n%r" % accuracy_score(ensemble.predict(X_train), y_train))
 
   preds = ensemble.predict(X)
-  print("Accuracy  Test:\n%r" % accuracy_score(preds, y))
+  acc = accuracy_score(preds, y)
+  print("Accuracy  Test:\n%r" % acc)
+
+  num_changed = 0
+  if acc > 0.9:
+    # for (ens, pred, k, score, value) in zip(preds, y, data_test[0].keys(), X, y_value):
+    #   if value < 0.7:
+    #     final_label[k] = wanted_words[int(ens)]
+
+    # if FLAGS.debug:
+    UNKNOWN_WORD_INDEX = word2idx[UNKNOWN_WORD_LABEL]
+    mac_data_dir = '/Users/feiteng/Geek/Kaggle/TF_Speech/test/audio/'
+    for (ens, pred, k, score, value) in zip(preds, y, data_test[0].keys(), X, y_value):
+      # final_label[k] = wanted_words[int(ens)]
+      ens = int(ens)
+      if ens != pred and value < 0.7 and (score[pred] < 2 * score[UNKNOWN_WORD_INDEX]):
+        # unknown tuning
+        if final_label[k] in [UNKNOWN_WORD_LABEL]:
+          continue
+        final_label[k] = wanted_words[int(ens)]
+        num_changed += 1
+
+        if FLAGS.debug:
+          # _, wav_name = infer.deprefix_dirname(k)
+          wav_name = k
+          os.system("play -V0 {}{}".format(mac_data_dir, wav_name))
+          print(
+            "INFO: {} Origin: {} Ensemble: {}".format(
+              ' '.join(["%8s: %.4f\n" % (k, v) for k, v in zip(wanted_words, score)]),
+              colors.c_string('G', wanted_words[pred]),
+              colors.c_string('R', wanted_words[ens])))
+          time.sleep(4)
+    print("INFO: {} / {} = {:4f} label changed.".format(num_changed, len(final_label),
+                                                        num_changed * 1.0 / len(final_label)))
 
   return final_label
 
@@ -223,7 +279,9 @@ def main(argv):
   with open(argv[-1], 'wb') as f:
     f.write("fname,label\n")
     for (k, v) in label.items():
-      f.write("{},{}\n".format(k, v))
+      # class_name, basename = get_basename(k)
+      basename = k
+      f.write("{},{}\n".format(basename, v))
 
 
 if __name__ == '__main__':
