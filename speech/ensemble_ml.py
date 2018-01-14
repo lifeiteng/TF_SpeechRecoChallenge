@@ -223,8 +223,7 @@ def main(argv):
   with open(argv[-1], 'wb') as f:
     f.write("fname,label\n")
     for (k, v) in label.items():
-      dirname, wavfile = infer.deprefix_dirname(k)
-      f.write("{},{}\n".format(wavfile, v))
+      f.write("{},{}\n".format(k, v))
 
 
 if __name__ == '__main__':

@@ -49,7 +49,11 @@ class AudioProcessor(object):
     # Look through all the subfolders to find audio samples
     search_path = os.path.join(self.data_dir, '*', '*.wav')
     self.data_indexs = []
+    max_warn = 10
     for wav_path in gfile.Glob(search_path):
+      if wav_path.find('_background_noise_') >= 0 and max_warn > 0:
+        max_warn -= 1
+        continue
       self.data_indexs.append(wav_path)
 
   def prepare_processing_graph(self, model_settings):
@@ -207,7 +211,16 @@ def main(_):
                          fingerprint_input: test_fingerprints,
                        })
       for k, wav_file in enumerate(test_wavfiles):
-        wf.write("%s,%s\n" % (wav_file.split('/')[-1], ','.join([str(v) for v in probs[k]])))
+        wf.write("%s,%s\n" % (prefix_dirname(wav_file), ','.join([str(v) for v in probs[k]])))
+
+
+def prefix_dirname(wav_file):
+  return '_'.join(wav_file.split('/')[-2:])
+
+
+def deprefix_dirname(wav_file):
+  splits = wav_file.split('_')
+  return splits[0], '_'.join(splits[1:])
 
 
 if __name__ == '__main__':

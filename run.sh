@@ -26,6 +26,8 @@ score_prefix=""
 training_steps="15000,10000"
 learning_rate="0.001,0.0001"
 
+submission_name=""
+
 . ./parse_options.sh
 
 set -e
@@ -78,7 +80,9 @@ python speech/infer.py \
   --feature_scaling "$feature_scaling" $train_opts </dev/null || exit 1
 
 cp $output_csv submissions || exit 1
+[ ! -z ${submission_name} ] && (cp $output_csv submissions/$submission_name || exit 1)
+
 python speech/ensemble_label.py $output_csv submissions/${model}${suffix}_${score_prefix}$datestr.csv
-python speech/ensemble_label.py --tune $output_csv submissions/${model}${suffix}_${score_prefix}${datestr}_tuned.csv
+# python speech/ensemble_label.py --tune $output_csv submissions/${model}${suffix}_${score_prefix}${datestr}_tuned.csv
 
 echo "$0: DONE"
