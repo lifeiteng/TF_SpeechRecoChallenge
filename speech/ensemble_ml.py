@@ -28,12 +28,12 @@ from __future__ import print_function
 
 import argparse
 import csv
+import logging
 import os
 import random
 import time
 from collections import defaultdict
 from operator import itemgetter
-import logging
 
 from mlens.ensemble import BlendEnsemble
 
@@ -181,6 +181,10 @@ def ensemble_labels(data_train, data_test):
 
   X_train = []
   y_train = []
+
+  final_label_tuning = {}
+  UNKNOWN_WORD_INDEX = word2idx[UNKNOWN_WORD_LABEL]
+
   for i, k in enumerate(data_test[0].keys()):
     scores = []
     for score in data_test:
@@ -206,6 +210,40 @@ def ensemble_labels(data_train, data_test):
       X_train.append(score)
       y_train.append(word2idx[final_label[k]])
 
+    final_label_tuning[k] = final_label[k]
+
+    # tuning
+    if value < 0.65:
+      indexs, values = zip(*[max(enumerate(ss), key=itemgetter(1)) for ss in scores])
+      max_index = indexs[max(enumerate(values), key=itemgetter(1))[0]]
+      final_label_tuning[k] = wanted_words[max_index]
+      if score[index] < 2 * score[UNKNOWN_WORD_INDEX]:
+        final_label_tuning[k] = UNKNOWN_WORD_LABEL
+
+      # if max(values) > 0.7:
+      #   max_index = indexs[max(enumerate(values), key=itemgetter(1))[0]]
+      #   final_label_tuning[k] = wanted_words[max_index]
+      # else:
+      #   if score[index] < 2 * score[UNKNOWN_WORD_INDEX]:
+      #     final_label_tuning[k] = UNKNOWN_WORD_LABEL
+
+    # if value < 0.8 and final_label[k] != UNKNOWN_WORD_LABEL:
+    #   final_label_tuning[k] = '{:.2f}_'.format(value) + final_label[k]
+    #   mac_data_dir = '/Users/feiteng/Geek/Kaggle/TF_Speech/test/audio/'
+    #   wav_name = k
+    #   os.system("play -V0 {}{}".format(mac_data_dir, wav_name))
+    #   logger.info(
+    #     "\n {} Origin: {} - {:.2f}".format(
+    #       ' '.join(["%8s: %.4f\n" % (kk, v) for kk, v in zip(wanted_words, score)]),
+    #       colors.c_string('R', final_label[k]), value))
+    #   time.sleep(4)
+
+  num_diff = sum([a != b for a, b in zip(final_label.values(), final_label_tuning.values())])
+  logger.info("Tune {} / {} = {:4f} labels.".format(num_diff, len(final_label),
+                                                      num_diff * 1.0 / len(final_label)))
+
+  return {'avg': final_label, 'tuning_6': final_label_tuning}
+
   print("INFO: got {} silence data for train.".format(len(y_train)))
 
   print("INFO: data_train {}".format(len(data_train)))
@@ -219,7 +257,7 @@ def ensemble_labels(data_train, data_test):
 
   # balance samples
   for v in set(y_train):
-    print("INFO: label: {:8s} count: {}".format(wanted_words[v], y_train.count(v)))
+    logger.info("label: {:8s} count: {}".format(wanted_words[v], y_train.count(v)))
 
   mini_count = min([y_train.count(v) for v in set(y_train)])
 
@@ -227,47 +265,95 @@ def ensemble_labels(data_train, data_test):
   random.shuffle(X_y_train)
   X_train, y_train = zip(*X_y_train)
 
-  ensemble = build_ensemble(proba=True)
-  ensemble.fit(X_train, y_train)
-  print("Accuracy Train:\n%r" % accuracy_score(ensemble.predict(X_train), y_train))
+  def _debug_tuning(acc, preds, label_dict):
+    if acc > 0.88:
+      num_changed = 0
+      UNKNOWN_WORD_INDEX = word2idx[UNKNOWN_WORD_LABEL]
+      mac_data_dir = '/Users/feiteng/Geek/Kaggle/TF_Speech/test/audio/'
+      for (ens, pred, k, score, value) in zip(preds, y, data_test[0].keys(), X, y_value):
+        # final_label[k] = wanted_words[int(ens)]
+        ens = int(ens)
+        if ens != pred and value < 0.7 and (score[pred] < 2 * score[UNKNOWN_WORD_INDEX]):
+          # unknown tuning
+          if label_dict[k] in [UNKNOWN_WORD_LABEL]:
+            continue
+          label_dict[k] = wanted_words[int(ens)]
+          num_changed += 1
 
-  preds = ensemble.predict(X)
-  acc = accuracy_score(preds, y)
-  print("Accuracy  Test:\n%r" % acc)
-
-  num_changed = 0
-  if acc > 0.9:
-    # for (ens, pred, k, score, value) in zip(preds, y, data_test[0].keys(), X, y_value):
-    #   if value < 0.7:
-    #     final_label[k] = wanted_words[int(ens)]
-
-    # if FLAGS.debug:
-    UNKNOWN_WORD_INDEX = word2idx[UNKNOWN_WORD_LABEL]
-    mac_data_dir = '/Users/feiteng/Geek/Kaggle/TF_Speech/test/audio/'
-    for (ens, pred, k, score, value) in zip(preds, y, data_test[0].keys(), X, y_value):
-      # final_label[k] = wanted_words[int(ens)]
-      ens = int(ens)
-      if ens != pred and value < 0.7 and (score[pred] < 2 * score[UNKNOWN_WORD_INDEX]):
-        # unknown tuning
-        if final_label[k] in [UNKNOWN_WORD_LABEL]:
-          continue
-        final_label[k] = wanted_words[int(ens)]
-        num_changed += 1
-
-        if FLAGS.debug:
+        if FLAGS.debug and (ens != pred):
           # _, wav_name = infer.deprefix_dirname(k)
           wav_name = k
           os.system("play -V0 {}{}".format(mac_data_dir, wav_name))
-          print(
-            "INFO: {} Origin: {} Ensemble: {}".format(
-              ' '.join(["%8s: %.4f\n" % (k, v) for k, v in zip(wanted_words, score)]),
+          logger.info(
+            "\n {} Origin: {} Ensemble: {} Tune: {}".format(
+              ' '.join(["%8s: %.4f\n" % (kk, v) for kk, v in zip(wanted_words, score)]),
               colors.c_string('G', wanted_words[pred]),
-              colors.c_string('R', wanted_words[ens])))
+              colors.c_string('R', wanted_words[ens]), label_dict[k]))
           time.sleep(4)
-    print("INFO: {} / {} = {:4f} label changed.".format(num_changed, len(final_label),
-                                                        num_changed * 1.0 / len(final_label)))
+      num_diff = sum([a != b for a, b in zip(preds, y)])
+      logger.info("{} / {} = {:4f} label changed, {} / {} = {:4f} diffs.".format(num_changed, len(label_dict),
+                                                                                 num_changed * 1.0 / len(label_dict),
+                                                                                 num_diff, len(label_dict),
+                                                                                 num_diff * 1.0 / len(label_dict)))
 
-  return final_label
+  def _mlensemble(label_dict):
+    ensemble = build_ensemble(proba=True)
+    ensemble.fit(X_train, y_train)
+    print("Accuracy Train:\n%r" % accuracy_score(ensemble.predict(X_train), y_train))
+
+    preds = ensemble.predict(X)
+    acc = accuracy_score(preds, y)
+    print("Accuracy  Test:\n%r" % acc)
+
+    _debug_tuning(acc, preds, label_dict)
+
+  def _random_forest(label_dict):
+    from sklearn.tree import export_graphviz
+
+    def print_graph(clf, output_file, feature_names=wanted_words):
+      """Print decision tree."""
+      graph = export_graphviz(
+        clf,
+        label="root",
+        proportion=True,
+        impurity=False,
+        out_file=None,
+        feature_names=feature_names,
+        class_names={v: k for k, v in word2idx.items()},
+        filled=True,
+        rounded=True
+      )
+      open(output_file + '.dot', 'w').write(graph)
+      os.system("dot -Tpng {}.dot -o {}.png".format(output_file, output_file))
+
+    for dp in [8, 10, 15]:
+      t1 = RandomForestClassifier(n_estimators=dp, max_features=5)
+      t1.fit(X_train, y_train)
+      print("Accuracy Train:\n%r" % accuracy_score(t1.predict(X_train), y_train))
+
+      preds = t1.predict(X)
+      acc = accuracy_score(preds, y)
+      print("Accuracy  Test:\n%r" % acc)
+
+      _debug_tuning(acc, preds, label_dict)
+
+      # print_graph(t1, "submissions/ensemble_decision_tree{}".format(dp))
+      try:
+        print_graph(t1, "submissions/ensemble_random_forest{}".format(dp))
+      except:
+        pass
+
+  final_label_mlens = {k: v for k, v in final_label.items()}
+  final_label_forest = {k: v for k, v in final_label.items()}
+
+  _mlensemble(final_label_mlens)
+  _random_forest(final_label_forest)
+
+  final_label_mlens_forest = {k: v for k, v in final_label_mlens.items()}
+  _random_forest(final_label_mlens_forest)
+
+  return {'avg': final_label, 'mlens': final_label_mlens, 'rdforest': final_label_forest,
+          'mlens_rdforest': final_label_mlens_forest}
 
 
 def main(argv):
@@ -275,13 +361,12 @@ def main(argv):
   data_train = load_score_csv(argv[0])
 
   data_test = [load_score_csv(f) for f in argv[1:-1]]
-  label = ensemble_labels(data_train, data_test)
-  with open(argv[-1], 'wb') as f:
-    f.write("fname,label\n")
-    for (k, v) in label.items():
-      # class_name, basename = get_basename(k)
-      basename = k
-      f.write("{},{}\n".format(basename, v))
+  labels = ensemble_labels(data_train, data_test)
+  for name, label in labels.items():
+    with open(argv[-1].replace('.csv', '_{}.csv'.format(name)), 'wb') as f:
+      f.write("fname,label\n")
+      for (k, v) in label.items():
+        f.write("{},{}\n".format(k, v))
 
 
 if __name__ == '__main__':
