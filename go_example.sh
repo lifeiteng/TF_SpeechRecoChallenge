@@ -19,14 +19,14 @@ dropout=0.8
 hparams="resnet_filters=45,resnet_type=c,add_batch_norm=True,add_first_batch_norm=False,freeze_first_batch_norm=False"
 suffix="15_filters45_BatchNormTypeC_CMN_Dropout${dropout}_Fbank80"
 
-# cmn
+# cmvn
 bash run.sh --mode train --model resnet \
 	--data_dir $data_dir --test_dir $test_dir \
   --hparams "$hparams"  --train-opts "--dropout_prob $dropout --dct_coefficient_count 80 --feature_type fbank" \
   --suffix "$suffix" --batch_size $batch_size \
   --opt "{ name: Adam, params: {} }" \
   --training_steps  "25000,25000" --skip-infer false \
-  --learning_rate "0.01,0.001" --use-gpu true --feature_scaling 'cmn'
+  --learning_rate "0.01,0.001" --use-gpu true --feature_scaling 'cmvn'
 
 
 # densenet

@@ -31,20 +31,27 @@ bash run.sh --mode train --model conv \
 ## 2. [improved-resnet](https://github.com/lifeiteng/TF_SpeechRecoChallenge/blob/master/speech/model_resnet.py#L210) LeaderBoard 0.89 (basic 0.85)
 * Tang R, Lin J. Deep Residual Learning for Small-Footprint Keyword Spotting[J]. arXiv preprint arXiv:1710.10361, 2017.
 
-##### No FeatureScale + BatchNorm (The paper's architecture): LB < 0.1
-##### No FeatureScale + remove BatchNorm : LB 0.84
-##### No FeatureScale + Add BN after input + BatchNorm: LB 0.86
-##### FeatureScale(centered mean) + BatchNorm: LB 0.85
+##### No FeatureScale + BatchNorm (The paper's architecture) + Mfcc 40: LB < 0.1
+##### No FeatureScale + remove BatchNorm + Mfcc 40: LB 0.84
+##### No FeatureScale + Add BN after input + BatchNorm + Mfcc 40: LB 0.86
+##### FeatureScale(centered mean) + BatchNorm + Mfcc 40: LB 0.85
 
-### improvements : LB 0.89333(private) 0.88157(public)
-   + dropout
-   + feature scale: centered mean (e.g. cmn)
-   + [First Conv: kernel_size=(3, 10), strides=(1, 4)](https://github.com/lifeiteng/TF_SpeechRecoChallenge/blob/master/speech/model_resnet.py#L256)
-   + use [MaxPool + AvgPool](https://github.com/lifeiteng/TF_SpeechRecoChallenge/blob/master/speech/model_resnet.py#L330)
-![](images/resnet_improved.png)
+### improvements :
+ * FeatureScale(centered mean, div variance, e.g. cmvn) + BatchNorm + `Fbank80`: `LB 0.89333`
+	* `during the competition, the LB is 0.88`
+    ![](images/resnet_improved.png)
+
+ * others: `LB 0.88617` `during the competition, the LB is 0.88`
+	commit: [922aa0d85](https://github.com/lifeiteng/TF_SpeechRecoChallenge/commit/922aa0d85bbe60c1c424d2887bc91f2e3744ad61)
+	+ Fbank 80
+	+ dropout
+	+ feature scale: centered mean (e.g. cmn)
+	+ [First Conv: kernel_size=(3, 10), strides=(1, 4)](https://github.com/lifeiteng/TF_SpeechRecoChallenge/blob/master/speech/model_resnet.py#L256)
+	+ use [MaxPool + AvgPool](https://github.com/lifeiteng/TF_SpeechRecoChallenge/blob/master/speech/model_resnet.py#L330)
+
 
 ```
-# LB 0.89
+# LB 0.886
 dropout=0.8
 hparams="resnet_filters=45,resnet_type=c,add_batch_norm=True,add_first_batch_norm=False,freeze_first_batch_norm=False"
 suffix="15_filters45_BatchNormTypeC_CMN_Dropout${dropout}_Fbank80"
@@ -62,7 +69,7 @@ bash run.sh --mode train --model resnet \
 ## 3. [improved-densenet](https://github.com/lifeiteng/TF_SpeechRecoChallenge/blob/master/speech/model_resnet.py#L367) LeaderBoard 0.88 (basic 0.86)
 * Huang G, Liu Z, Weinberger K Q, et al. Densely connected convolutional networks[C]//Proceedings of the IEEE conference on computer vision and pattern recognition. 2017, 1(2): 3.
 
-* improvements (same as resnet)
+* improvements (same as resnet - others)
 ![](images/densenet_improved.png)
 
 ```
@@ -82,7 +89,7 @@ for l in 8;do
 done
 ```
 
-## 4. ensemble 0.89745
+## 4. ensemble LB 0.89745
 * spent little time on it.
 ![](images/ensemble.png)
 
